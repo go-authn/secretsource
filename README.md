@@ -4,7 +4,7 @@ Resolve a secret (a FIDO2 PIN, a container password, a recovery code) from a
 **reference** instead of a plaintext file left on disk.
 
 ```go
-s, err := secretsource.Open(ctx, "keepassxc:by-path/Keys/Yubikey PIN")
+s, err := secretsource.Open(ctx, "keepassxc:https://fido.invalid/yubikey-5c")
 if err != nil { ... }
 defer s.Close()          // overwrites the bytes
 use(s.Bytes())
@@ -16,9 +16,12 @@ use(s.Bytes())
 | `keychain:SERVICE/ACCOUNT` | a macOS Keychain generic-password item (pure Go, [go-macos/keychain](https://github.com/go-macos/keychain)) |
 | `secretservice:SERVICE/ACCOUNT` | a freedesktop Secret Service item with attributes `service=SERVICE`, `account=ACCOUNT` |
 | `secretservice:KEY=VALUE[,KEY=VALUE...]` | the one Secret Service item carrying all those attributes, whatever else it has (a KeePassXC entry exposed by its Secret Service integration: `Title=...`, `UserName=...`; or `secret-tool store`). No escaping: keys and values hold no `,`. Several matches are refused |
-| `keepassxc:by-uuid/HEX` | the KeePassXC entry with that UUID (32 hex digits), through KeePassXC's browser-integration protocol |
-| `keepassxc:by-path/Group/Title` | the entry at that path (the root group's name is left out). KeePassXC matches the END of the path, so a title shared by two groups matches both: refused as ambiguous, use `by-uuid/` |
-| `keepassxc:URL` | the entry whose URL field matches (any `scheme://...`, matched by KeePassXC's own URL rules) |
+| `keepassxc:URL` | the KeePassXC entry whose **URL field** is that URL (any `scheme://host...`; `https://NAME.invalid/...` is a good, never-resolving choice), through KeePassXC's browser-integration protocol. Two entries with the same URL are refused as ambiguous |
+
+`keepassxc:by-uuid/...` and `keepassxc:by-path/...` (KeePassXC's own lookups) are
+**refused**: KeePassXC 2.8.0 crashes (SIGSEGV, `BrowserService::sortPriority`,
+`std::max_element` of an empty list) when a lookup finds an entry with no URL,
+and a PIN entry often has none. Found by URL, an entry has one by construction.
 
 A reference never holds the secret, so it may sit in a flag, a script or a
 shell history. There is **no scheme that runs a command**: a flag must never be
@@ -58,16 +61,18 @@ BrowserShared, BrowserAction, BrowserMessageBuilder, BrowserService).
    in the macOS Keychain, in the Secret Service on Linux when one answers, and
    otherwise in a 0600 file under your configuration directory. A lookup never
    creates an association; without one it fails with `ErrNotAssociated`.
-3. Create the entry (Title `Yubikey PIN`, Password = the PIN), then check the
-   reference without printing anything:
+3. Create the entry (Title `Yubikey PIN`, Password = the PIN) and **fill its URL
+   field** with `https://fido.invalid/yubikey-5c` (any URL not used by another
+   entry: the reference is that URL). Then check the reference without printing
+   anything:
 
    ```
-   secretsource check 'keepassxc:by-path/Yubikey PIN'
+   secretsource check 'keepassxc:https://fido.invalid/yubikey-5c'
    ```
 
    The first read of an entry shows KeePassXC's access dialog: allow it, and
    tick *Remember* to stop being asked.
-4. Use it: `fido fingerprint list --pin-from 'keepassxc:by-path/Yubikey PIN'`.
+4. Use it: `fido fingerprint list --pin-from 'keepassxc:https://fido.invalid/yubikey-5c'`.
 
 KeePassXC answers whichever database is open; with a locked database it opens
 its unlock dialog and waits for you (up to the 2-minute bound).

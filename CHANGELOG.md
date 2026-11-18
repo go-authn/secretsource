@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.3.0
+
+- **Fix: v0.2.0 could crash KeePassXC.** `keepassxc:by-uuid/...` and
+  `keepassxc:by-path/...` asked KeePassXC for `keepassxc://by-uuid/...` and
+  `keepassxc://by-path/...`; KeePassXC 2.8.0 dereferences the end of an empty
+  list (`BrowserService::sortPriority`, BrowserService.cpp:1347, via
+  `sortEntries`/`findEntries`/`handleGetLogins`) when that lookup finds an entry
+  with no URL, and dies with SIGSEGV. Reproduced under gdb on a throwaway
+  KeePassXC 2.8.0 built from the tag (`repro/keepassxc-2.8.0-crash/`). Those two
+  forms are now refused (`ErrBadRef`) before any connection; use
+  `keepassxc:URL` and give the entry that URL (an entry found by its URL has one).
+  Breaking for the v0.2.0 forms (below v1: minor).
+- A fake KeePassXC in the tests models the crash; the old request is replayed and
+  shown to kill it, the new client never sends it.
+
 ## v0.2.0
 
 - `keepassxc:by-uuid/HEX`, `keepassxc:by-path/Group/Title`, `keepassxc:URL`: read an entry

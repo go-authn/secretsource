@@ -31,7 +31,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -137,29 +136,24 @@ func parseAttrs(ref, v string) (string, error) {
 	return strings.Join(pairs, ","), nil
 }
 
-var uuidHex = regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString
-
-// parseEntry checks a keepassxc: value. KeePassXC itself finds an entry by
-// "keepassxc://by-uuid/<32 hex>" or "keepassxc://by-path/<Group/Title>"
-// (BrowserService::shouldIncludeEntry); any other value must be a URL, which
+// parseEntry checks a keepassxc: value: the URL held by the entry, which
 // KeePassXC matches against the entries' URL fields.
+//
+// KeePassXC also finds an entry by "keepassxc://by-uuid/HEX" and
+// "keepassxc://by-path/Group/Title" (BrowserService::shouldIncludeEntry), but
+// KeePassXC 2.8.0 CRASHES (SIGSEGV) when such a lookup finds an entry with no
+// URL: sortPriority dereferences std::max_element of an empty list
+// (BrowserService.cpp:1347, reached from findEntries and sortEntries). A PIN
+// entry has no URL as often as not, so those forms are refused here; an entry
+// found by its URL has one by construction.
 func parseEntry(ref, v string) (string, error) {
 	switch {
-	case strings.HasPrefix(v, "by-uuid/"):
-		h := strings.ToLower(strings.TrimPrefix(v, "by-uuid/"))
-		if !uuidHex(h) {
-			return "", fmt.Errorf("%w: %q: by-uuid/ wants the 32 hex digits KeePassXC shows", ErrBadRef, clip(ref))
-		}
-		return "by-uuid/" + h, nil
-	case strings.HasPrefix(v, "by-path/"):
-		if strings.TrimPrefix(v, "by-path/") == "" {
-			return "", fmt.Errorf("%w: %q: by-path/ wants Group/Title", ErrBadRef, clip(ref))
-		}
-		return v, nil
-	case len(v) <= 1024 && strings.Contains(v, "://") && !strings.HasPrefix(v, "keepassxc://"):
+	case strings.HasPrefix(v, "by-uuid/"), strings.HasPrefix(v, "by-path/"), strings.HasPrefix(v, "keepassxc://"):
+		return "", fmt.Errorf("%w: %q: lookups by uuid or path crash KeePassXC 2.8.0 on an entry without a URL; give the entry a URL (for example https://theca.invalid/vault) and use keepassxc:URL", ErrBadRef, clip(ref))
+	case len(v) <= 1024 && strings.Contains(v, "://"):
 		return v, nil
 	}
-	return "", fmt.Errorf("%w: %q: want keepassxc:by-uuid/HEX, keepassxc:by-path/Group/Title or keepassxc:URL", ErrBadRef, clip(ref))
+	return "", fmt.Errorf("%w: %q: want keepassxc:URL, the URL field of the entry (scheme://...)", ErrBadRef, clip(ref))
 }
 
 // Parse reads a reference. It never touches a manager. A reference without a

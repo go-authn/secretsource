@@ -11,7 +11,7 @@ import (
 func TestKeePassXCOpenEdges(t *testing.T) {
 	ctx := context.Background()
 	f := newFake()
-	f.entries[urlUUID] = []map[string]any{entry("pin")}
+	f.entries[urlURL] = []map[string]any{entry("pin")}
 	withFake(t, f)
 	if _, err := Associate(ctx); err != nil {
 		t.Fatal(err)
@@ -22,13 +22,13 @@ func TestKeePassXCOpenEdges(t *testing.T) {
 			in["entries"] = []any{}
 		}
 	}
-	if _, err := Open(ctx, refUUID); !errors.Is(err, ErrNotFound) {
+	if _, err := Open(ctx, refURL); !errors.Is(err, ErrNotFound) {
 		t.Errorf("empty list: %v", err)
 	}
 	f.tamper = nil
 	// No socket at all.
 	keepassxcDial = func(context.Context) (net.Conn, error) { return nil, ErrUnavailable }
-	if _, err := Open(ctx, refUUID); !errors.Is(err, ErrUnavailable) {
+	if _, err := Open(ctx, refURL); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("no socket: %v", err)
 	}
 	// A socket that closes at once.
@@ -37,13 +37,13 @@ func TestKeePassXCOpenEdges(t *testing.T) {
 		s.Close()
 		return c, nil
 	}
-	if _, err := Open(ctx, refUUID); !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "waiting for you") {
+	if _, err := Open(ctx, refURL); !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "waiting for you") {
 		t.Errorf("closed socket: %v", err)
 	}
 	// A reply that is not the object the protocol allows.
 	keepassxcDial = f.dial
 	f.preamble = `{"action":1}`
-	if _, err := Open(ctx, refUUID); err == nil || !strings.Contains(err.Error(), "malformed reply") {
+	if _, err := Open(ctx, refURL); err == nil || !strings.Contains(err.Error(), "malformed reply") {
 		t.Errorf("non-string field: %v", err)
 	}
 }
