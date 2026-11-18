@@ -36,6 +36,10 @@ type fakeKPX struct {
 	closeOn  string // close the socket instead of answering this action
 	seen     []string
 	got      map[string]map[string]any // last inner request per action
+	// crashOnURLLess models KeePassXC 2.8.0: a get-logins for keepassxc://by-...
+	// that finds an entry without a URL kills the process.
+	crashOnURLLess bool
+	crashed        bool
 }
 
 func newFake() *fakeKPX {
@@ -145,6 +149,10 @@ func (f *fakeKPX) serve(s net.Conn) {
 		case "get-logins":
 			url, _ := in["url"].(string)
 			es := f.entries[url]
+			if f.crashOnURLLess && len(es) > 0 && strings.HasPrefix(url, "keepassxc://by-") {
+				f.crashed = true
+				return // SIGSEGV in sortPriority: the socket just closes
+			}
 			if len(es) == 0 {
 				write(map[string]string{"action": action, "errorCode": "15", "error": "no logins found"})
 				continue
@@ -203,17 +211,17 @@ func entry(pw string) map[string]any {
 	return map[string]any{"login": "u", "name": "Yubikey PIN", "password": pw, "uuid": "00112233445566778899aabbccddeeff"}
 }
 
-const refUUID = "keepassxc:by-uuid/00112233445566778899aabbccddeeff"
-const urlUUID = "keepassxc://by-uuid/00112233445566778899aabbccddeeff"
+const refURL = "keepassxc:https://theca.invalid/vault"
+const urlURL = "https://theca.invalid/vault"
 
 func TestKeePassXCAssociateThenOpen(t *testing.T) {
 	f := newFake()
-	f.entries[urlUUID] = []map[string]any{entry("246810")}
+	f.entries[urlURL] = []map[string]any{entry("246810")}
 	ms := withFake(t, f)
 	ctx := context.Background()
 
 	// Not associated yet: a lookup never creates trust.
-	if _, err := Open(ctx, refUUID); !errors.Is(err, ErrNotAssociated) || !strings.Contains(err.Error(), "associate") {
+	if _, err := Open(ctx, refURL); !errors.Is(err, ErrNotAssociated) || !strings.Contains(err.Error(), "associate") {
 		t.Fatalf("before association: %v", err)
 	}
 	a, err := Associate(ctx)
@@ -223,7 +231,7 @@ func TestKeePassXCAssociateThenOpen(t *testing.T) {
 	if ms.m["abc123"].ID != "laptop" || ms.m["abc123"].Key != f.keys["laptop"] {
 		t.Fatalf("the association was not kept: %+v vs %v", ms.m, f.keys)
 	}
-	s, err := Open(ctx, refUUID)
+	s, err := Open(ctx, refURL)
 	if err != nil || string(s.Bytes()) != "246810" {
 		t.Fatalf("open: %q %v", s.Bytes(), err)
 	}
@@ -236,13 +244,51 @@ func TestKeePassXCAssociateThenOpen(t *testing.T) {
 	if keys["id"] != "laptop" || keys["key"] != f.keys["laptop"] {
 		t.Errorf("keys %v", keys)
 	}
-	// A plain URL and a by-path reference travel as written / as KeePassXC's form.
+	// A URL travels exactly as written.
 	f.entries["theca://vault"] = []map[string]any{entry("pw")}
-	f.entries["keepassxc://by-path/Keys/Yubikey"] = []map[string]any{entry("pp")}
-	for ref, want := range map[string]string{"keepassxc:theca://vault": "pw", "keepassxc:by-path/Keys/Yubikey": "pp"} {
-		if s, err := Open(ctx, ref); err != nil || string(s.Bytes()) != want {
-			t.Errorf("%s: %q %v", ref, s.Bytes(), err)
+	if s, err := Open(ctx, "keepassxc:theca://vault"); err != nil || string(s.Bytes()) != "pw" || f.got["get-logins"]["url"] != "theca://vault" {
+		t.Errorf("%q %v %v", s.Bytes(), err, f.got["get-logins"]["url"])
+	}
+}
+
+// TestKeePassXCNeverSendsTheCrashingLookup: KeePassXC 2.8.0 dies
+// (BrowserService.cpp:1347, std::max_element over an empty list) when
+// get-logins asks for keepassxc://by-uuid/... or keepassxc://by-path/... and
+// the entry found has no URL. The fake models that crash. The bytes the
+// first release sent are reproduced and shown to kill it; the client now
+// refuses those references before it even connects.
+func TestKeePassXCNeverSendsTheCrashingLookup(t *testing.T) {
+	ctx := context.Background()
+	f := newFake()
+	f.entries["keepassxc://by-path/Yubikey PIN"] = []map[string]any{entry("pin")}
+	f.crashOnURLLess = true
+	withFake(t, f)
+
+	// Before: the exact inner request of v0.2.0 for keepassxc:by-path/Yubikey PIN.
+	k, err := newConn(ctx, mustDial(t, f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = k.call("get-logins", map[string]any{"url": "keepassxc://by-path/Yubikey PIN", "keys": []map[string]string{{"id": "x", "key": "AAAA"}}}, &struct{}{})
+	k.close()
+	if err == nil || !f.crashed {
+		t.Fatalf("the old request must kill the fake KeePassXC: %v crashed=%v", err, f.crashed)
+	}
+
+	// After: refused before any connection, whatever the spelling.
+	f.crashed = false
+	dialed := false
+	keepassxcDial = func(context.Context) (net.Conn, error) { dialed = true; return nil, ErrUnavailable }
+	for _, ref := range []string{
+		"keepassxc:by-path/Yubikey PIN", "keepassxc:by-uuid/00112233445566778899aabbccddeeff",
+		"keepassxc:keepassxc://by-path/Yubikey PIN", "keepassxc:by-uuid/", "keepassxc:by-path/",
+	} {
+		if _, err := Open(ctx, ref); !errors.Is(err, ErrBadRef) || !strings.Contains(err.Error(), "crash") {
+			t.Errorf("%s: %v", ref, err)
 		}
+	}
+	if dialed || f.crashed {
+		t.Errorf("a refused reference reached KeePassXC: dialed=%v crashed=%v", dialed, f.crashed)
 	}
 }
 
@@ -250,7 +296,7 @@ func TestKeePassXCRefusals(t *testing.T) {
 	ctx := context.Background()
 	setup := func() (*fakeKPX, *memStore) {
 		f := newFake()
-		f.entries[urlUUID] = []map[string]any{entry("pin")}
+		f.entries[urlURL] = []map[string]any{entry("pin")}
 		ms := withFake(t, f)
 		if _, err := Associate(ctx); err != nil {
 			t.Fatal(err)
@@ -267,14 +313,14 @@ func TestKeePassXCRefusals(t *testing.T) {
 		{"database locked", func(f *fakeKPX, _ *memStore) { f.errs["get-databasehash"] = "1" }, ErrUnavailable, "unlock the database"},
 		{"timeout reported by KeePassXC", func(f *fakeKPX, _ *memStore) { f.errs["get-logins"] = "5" }, ErrUnavailable, ""},
 		{"access refused in the dialog", func(f *fakeKPX, _ *memStore) { f.errs["get-logins"] = "6" }, ErrDenied, ""},
-		{"no entry", func(f *fakeKPX, _ *memStore) { delete(f.entries, urlUUID) }, ErrNotFound, ""},
-		{"two entries", func(f *fakeKPX, _ *memStore) { f.entries[urlUUID] = []map[string]any{entry("a"), entry("b")} }, ErrAmbiguous, "by-uuid"},
+		{"no entry", func(f *fakeKPX, _ *memStore) { delete(f.entries, urlURL) }, ErrNotFound, ""},
+		{"two entries", func(f *fakeKPX, _ *memStore) { f.entries[urlURL] = []map[string]any{entry("a"), entry("b")} }, ErrAmbiguous, "name one"},
 		{"unknown error code", func(f *fakeKPX, _ *memStore) { f.errs["get-logins"] = "12" }, nil, "error 12"},
 		{"test-associate unknown error", func(f *fakeKPX, _ *memStore) { f.errs["test-associate"] = "4" }, nil, "error 4"},
 		{"database hash that is not hex", func(f *fakeKPX, _ *memStore) { f.hash = "../../etc/passwd" }, nil, "not hexadecimal"},
 		{"hash call fails", func(f *fakeKPX, _ *memStore) { f.errs["get-databasehash"] = "13" }, nil, "error 13"},
 		{"a different database", func(f *fakeKPX, _ *memStore) { f.hash = "ffff" }, ErrNotAssociated, "ffff"},
-		{"empty password", func(f *fakeKPX, _ *memStore) { f.entries[urlUUID] = []map[string]any{entry("")} }, ErrEmpty, ""},
+		{"empty password", func(f *fakeKPX, _ *memStore) { f.entries[urlURL] = []map[string]any{entry("")} }, ErrEmpty, ""},
 		{"entries is not a list", func(f *fakeKPX, _ *memStore) {
 			f.tamper = func(a string, _ map[string]string, in map[string]any) {
 				if a == "get-logins" {
@@ -287,7 +333,7 @@ func TestKeePassXCRefusals(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f, ms := setup()
 			c.setup(f, ms)
-			s, err := Open(ctx, refUUID)
+			s, err := Open(ctx, refURL)
 			if err == nil {
 				s.Close()
 				t.Fatal("a secret was returned")
@@ -401,7 +447,7 @@ func TestKeePassXCProtocolFaults(t *testing.T) {
 	for _, c := range faults {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFake()
-			f.entries[urlUUID] = []map[string]any{entry("pin")}
+			f.entries[urlURL] = []map[string]any{entry("pin")}
 			withFake(t, f)
 			c.f(f)
 			_, err := Associate(ctx)
@@ -431,7 +477,7 @@ func TestKeePassXCTimeoutWhileWaiting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := Open(ctx, refUUID)
+	_, err := Open(ctx, refURL)
 	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "waiting for you") || time.Since(start) > 3*time.Second {
 		t.Fatalf("%v after %v", err, time.Since(start))
 	}
@@ -440,12 +486,12 @@ func TestKeePassXCTimeoutWhileWaiting(t *testing.T) {
 func TestKeePassXCNoDeadlineGetsOne(t *testing.T) {
 	// Open applies Timeout; the fake answers at once so only the path is checked.
 	f := newFake()
-	f.entries[urlUUID] = []map[string]any{entry("pin")}
+	f.entries[urlURL] = []map[string]any{entry("pin")}
 	withFake(t, f)
 	if _, err := Associate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if s, err := Open(context.Background(), refUUID); err != nil || string(s.Bytes()) != "pin" {
+	if s, err := Open(context.Background(), refURL); err != nil || string(s.Bytes()) != "pin" {
 		t.Fatal(err)
 	}
 }
@@ -602,27 +648,23 @@ func TestKpxErrorMapping(t *testing.T) {
 
 func TestParseKeePassXC(t *testing.T) {
 	ok := map[string]string{
-		"keepassxc:by-uuid/00112233445566778899AABBCCDDEEFF": "keepassxc:by-uuid/00112233445566778899aabbccddeeff",
-		"keepassxc:by-path/Keys/Yubikey PIN":                 "keepassxc:by-path/Keys/Yubikey PIN",
-		"keepassxc:theca://vault":                            "keepassxc:theca://vault",
-		"keepassxc:https://theca.invalid/vault":              "keepassxc:https://theca.invalid/vault",
+		"keepassxc:theca://vault":               "keepassxc:theca://vault",
+		"keepassxc:https://theca.invalid/vault": "keepassxc:https://theca.invalid/vault",
 	}
 	for in, back := range ok {
 		r, err := Parse(in)
-		if err != nil || r.String() != back || r.Scheme != "keepassxc" {
+		if err != nil || r.String() != back || r.Scheme != "keepassxc" || r.entryURL() != r.Entry {
 			t.Errorf("%q: %+v %v", in, r, err)
 		}
 	}
 	for _, in := range []string{
 		"keepassxc:", "keepassxc:Entry", "keepassxc:by-uuid/xyz", "keepassxc:by-uuid/", "keepassxc:by-path/",
+		"keepassxc:by-path/Keys/Yubikey PIN", "keepassxc:by-uuid/00112233445566778899aabbccddeeff",
 		"keepassxc:keepassxc://by-uuid/00112233445566778899aabbccddeeff", "keepassxc:" + strings.Repeat("a", 1100) + "://",
 	} {
 		if _, err := Parse(in); !errors.Is(err, ErrBadRef) {
 			t.Errorf("%q: %v", in, err)
 		}
-	}
-	if got := (Ref{Scheme: "keepassxc", Entry: "by-path/A"}).entryURL(); got != "keepassxc://by-path/A" {
-		t.Error(got)
 	}
 }
 

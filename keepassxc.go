@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strings"
 
 	"github.com/go-freedesktop/secretservice"
 	"github.com/go-macos/keychain"
@@ -79,16 +78,8 @@ func dialKeePassXC(ctx context.Context) (net.Conn, error) {
 // stored association and comes from a peer.
 var validHash = regexp.MustCompile(`^[0-9a-fA-F]{1,128}$`).MatchString
 
-// entryURL is what get-logins is asked for: KeePassXC's own
-// keepassxc://by-uuid/ and keepassxc://by-path/ forms
-// (BrowserService::shouldIncludeEntry), or the URL as the entry holds it.
-func (r Ref) entryURL() string {
-	switch {
-	case strings.HasPrefix(r.Entry, "by-uuid/"), strings.HasPrefix(r.Entry, "by-path/"):
-		return "keepassxc://" + r.Entry
-	}
-	return r.Entry
-}
+// entryURL is what get-logins is asked for: the URL as the entry holds it.
+func (r Ref) entryURL() string { return r.Entry }
 
 func openKeePassXC(ctx context.Context, r Ref) ([]byte, error) {
 	store := newAssocStore()
@@ -130,7 +121,7 @@ func openKeePassXC(ctx context.Context, r Ref) ([]byte, error) {
 	case 1:
 		return []byte(res.Entries[0].Password), nil
 	}
-	return nil, fmt.Errorf("%w: %d entries for %s; name one with keepassxc:by-uuid/UUID", ErrAmbiguous, len(res.Entries), r)
+	return nil, fmt.Errorf("%w: %d entries for %s; name one: give a single entry that URL", ErrAmbiguous, len(res.Entries), r)
 }
 
 // waiting adds the usual reason a KeePassXC call does not come back.
