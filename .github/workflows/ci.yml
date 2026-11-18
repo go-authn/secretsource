@@ -33,6 +33,10 @@ jobs:
       - name: Coverage must be 100%
         if: runner.os == 'Linux'
         run: go tool cover -func=cover.out | tail -1 | grep -q '100.0%'
+      - name: Reproduction driver (own module)
+        if: runner.os == 'Linux'
+        working-directory: repro/keepassxc-2.8.0-crash/kpxrepro
+        run: go vet ./... && go test -count=1 -race ./...
       - name: Race
         if: runner.os != 'Windows'
         run: go test -race -count=1 ./...

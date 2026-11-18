@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -30,10 +31,17 @@ func main() {
 	defer stop()
 	root := RootCmd()
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(root.ErrOrStderr(), "secretsource:", err)
+		fmt.Fprintln(root.ErrOrStderr(), errorLine(err))
 		stop()
 		osExit(1)
 	}
+}
+
+// errorLine is the one line an error is reported as. The library's errors
+// already start with "secretsource: ", so the program's own prefix is not
+// added twice.
+func errorLine(err error) string {
+	return "secretsource: " + strings.TrimPrefix(err.Error(), "secretsource: ")
 }
 
 // RootCmd builds the command tree.
