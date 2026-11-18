@@ -38,7 +38,7 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Fuzz the reference parser
         if: runner.os == 'Linux'
-        run: go test -run '^$' -fuzz FuzzParse -fuzztime 30s .
+        run: go test -run '^$' -fuzz FuzzParse -fuzztime 30s . && go test -run '^$' -fuzz FuzzDecodeFrame -fuzztime 30s .
 
   vuln:
     runs-on: ubuntu-latest

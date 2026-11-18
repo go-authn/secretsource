@@ -14,6 +14,8 @@ import (
 var (
 	keychainGet      = keychain.Get
 	secretserviceGet = secretservice.Get
+	// secretserviceGetAttrs reads an item by arbitrary attributes.
+	secretserviceGetAttrs = secretservice.GetByAttributes
 )
 
 // Security framework statuses that mean "the keychain will not answer now".
@@ -47,7 +49,12 @@ func mapSecretService(r Ref, err error) error {
 	case errors.Is(err, ErrUnavailable):
 		return err
 	case errors.Is(err, secretservice.ErrNotFound):
+		if r.Attrs != "" {
+			return fmt.Errorf("%w: Secret Service item with %s", ErrNotFound, r.Attrs)
+		}
 		return fmt.Errorf("%w: Secret Service item service=%s account=%s", ErrNotFound, r.Service, r.Account)
+	case errors.Is(err, secretservice.ErrAmbiguous):
+		return fmt.Errorf("%w: several Secret Service items match %s; add an attribute to tell them apart", ErrAmbiguous, r)
 	case errors.Is(err, secretservice.ErrUnavailable):
 		return fmt.Errorf("%w: no Secret Service on the session bus (start GNOME Keyring or enable KeePassXC's Secret Service Integration): %v", ErrUnavailable, err)
 	}

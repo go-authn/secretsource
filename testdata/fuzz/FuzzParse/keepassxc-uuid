@@ -1,0 +1,2 @@
+go test fuzz v1
+string("keepassxc:by-uuid/00112233445566778899AABBCCDDEEFF")

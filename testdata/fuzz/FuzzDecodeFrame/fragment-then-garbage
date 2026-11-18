@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("}}}{\"action\":\"a\",\"error\":\"\\u00e9\\ud800\"}\x00\xff")
