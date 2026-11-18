@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.1
+
+- Fix: `secretsource check` printed `secretsource: secretsource: bad reference ...`
+  (the library's errors already carry the prefix).
+- The container reproduction of the KeePassXC 2.8.0 crash is a Go program
+  (`repro/keepassxc-2.8.0-crash/kpxrepro`, tested) instead of shell scripts; the
+  upstream report notes that the crash is keepassxreboot/keepassxc#13865.
+
 ## v0.3.0
 
 - **Fix: v0.2.0 could crash KeePassXC.** `keepassxc:by-uuid/...` and

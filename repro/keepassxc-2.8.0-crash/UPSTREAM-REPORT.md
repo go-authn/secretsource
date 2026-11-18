@@ -1,4 +1,9 @@
-# DRAFT, not filed. KeePassXC asks for security reports privately; the owner decides.
+# Already reported upstream: keepassxreboot/keepassxc#13865
+
+Opened on 2026-10-24 by someone else, with the same cause and fix. Our confirmation (2.8.0 on macOS and
+a Linux build from the tag, the nine frames, the minimal message) was added as a comment:
+https://github.com/keepassxreboot/keepassxc/issues/13865#issuecomment-6975399719. The text below is
+kept as the record of what we found.
 
 ## KeePassXC 2.8.0 (and current develop): browser-integration `get-logins` crashes with SIGSEGV when a `keepassxc://by-uuid/` or `keepassxc://by-path/` lookup finds an entry that has no URL
 

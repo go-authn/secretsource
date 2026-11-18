@@ -59,6 +59,17 @@ func TestCheckNeverPrintsTheSecret(t *testing.T) {
 	}
 }
 
+func TestErrorLineHasOnePrefix(t *testing.T) {
+	for in, want := range map[string]string{
+		"secretsource: bad reference: x": "secretsource: bad reference: x",
+		"no prefix yet":                  "secretsource: no prefix yet",
+	} {
+		if got := errorLine(errors.New(in)); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestMain_ReportsAndExits(t *testing.T) {
 	oldExit, oldArgs := osExit, os.Args
 	t.Cleanup(func() { osExit, os.Args = oldExit, oldArgs })
