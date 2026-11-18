@@ -31,9 +31,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/go-freedesktop/secretservice"
 )
 
 // MaxSize is the longest secret accepted, in bytes.
@@ -82,14 +86,80 @@ type Ref struct {
 	Path string
 	// Service and Account name the entry (keychain, secretservice).
 	Service, Account string
+	// Entry names a KeePassXC entry (keepassxc): by-uuid/HEX, by-path/PATH
+	// or a URL the entry holds.
+	Entry string
+	// Attrs is a secretservice lookup by arbitrary attributes, canonical
+	// ("key=value,key=value", keys sorted); see [Ref.AttrMap].
+	Attrs string
 }
 
 // String renders the reference back as written.
 func (r Ref) String() string {
-	if r.Scheme == "file" {
+	switch {
+	case r.Scheme == "file":
 		return "file:" + r.Path
+	case r.Scheme == "keepassxc":
+		return "keepassxc:" + r.Entry
+	case r.Attrs != "":
+		return r.Scheme + ":" + r.Attrs
 	}
 	return r.Scheme + ":" + r.Service + "/" + r.Account
+}
+
+// AttrMap returns the attributes of a secretservice:key=value,... reference.
+func (r Ref) AttrMap() map[string]string {
+	m := map[string]string{}
+	for _, p := range strings.Split(r.Attrs, ",") {
+		k, v, _ := strings.Cut(p, "=")
+		m[k] = v
+	}
+	return m
+}
+
+// parseAttrs checks key=value[,key=value...]: keys and values non-empty and
+// free of "," (there is no escaping), no key twice, at most 32 pairs. It
+// returns the canonical form, sorted by key.
+func parseAttrs(ref, v string) (string, error) {
+	pairs := strings.Split(v, ",")
+	if len(pairs) > secretservice.MaxAttributes {
+		return "", fmt.Errorf("%w: %q: more than %d attributes", ErrBadRef, clip(ref), secretservice.MaxAttributes)
+	}
+	seen := map[string]bool{}
+	for _, p := range pairs {
+		k, val, ok := strings.Cut(p, "=")
+		if !ok || k == "" || val == "" || seen[k] {
+			return "", fmt.Errorf("%w: %q: want secretservice:key=value[,key=value...] with each key once", ErrBadRef, clip(ref))
+		}
+		seen[k] = true
+	}
+	slices.Sort(pairs) // any fixed order will do; this one is idempotent
+	return strings.Join(pairs, ","), nil
+}
+
+var uuidHex = regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString
+
+// parseEntry checks a keepassxc: value. KeePassXC itself finds an entry by
+// "keepassxc://by-uuid/<32 hex>" or "keepassxc://by-path/<Group/Title>"
+// (BrowserService::shouldIncludeEntry); any other value must be a URL, which
+// KeePassXC matches against the entries' URL fields.
+func parseEntry(ref, v string) (string, error) {
+	switch {
+	case strings.HasPrefix(v, "by-uuid/"):
+		h := strings.ToLower(strings.TrimPrefix(v, "by-uuid/"))
+		if !uuidHex(h) {
+			return "", fmt.Errorf("%w: %q: by-uuid/ wants the 32 hex digits KeePassXC shows", ErrBadRef, clip(ref))
+		}
+		return "by-uuid/" + h, nil
+	case strings.HasPrefix(v, "by-path/"):
+		if strings.TrimPrefix(v, "by-path/") == "" {
+			return "", fmt.Errorf("%w: %q: by-path/ wants Group/Title", ErrBadRef, clip(ref))
+		}
+		return v, nil
+	case len(v) <= 1024 && strings.Contains(v, "://") && !strings.HasPrefix(v, "keepassxc://"):
+		return v, nil
+	}
+	return "", fmt.Errorf("%w: %q: want keepassxc:by-uuid/HEX, keepassxc:by-path/Group/Title or keepassxc:URL", ErrBadRef, clip(ref))
 }
 
 // Parse reads a reference. It never touches a manager. A reference without a
@@ -110,13 +180,24 @@ func Parse(ref string) (Ref, error) {
 	case "file":
 		return Ref{Scheme: scheme, Path: value}, nil
 	case "keychain", "secretservice":
+		if scheme == "secretservice" && strings.Contains(value, "=") {
+			a, err := parseAttrs(ref, value)
+			if err != nil {
+				return Ref{}, err
+			}
+			return Ref{Scheme: scheme, Attrs: a}, nil
+		}
 		svc, acct, ok := strings.Cut(value, "/")
 		if !ok || svc == "" || acct == "" {
 			return Ref{}, fmt.Errorf("%w: %q: want %s:SERVICE/ACCOUNT", ErrBadRef, clip(ref), scheme)
 		}
 		return Ref{Scheme: scheme, Service: svc, Account: acct}, nil
 	case "keepassxc":
-		return Ref{}, fmt.Errorf("%w: keepassxc: is not implemented yet; enable KeePassXC's Secret Service Integration and use secretservice:", ErrScheme)
+		e, err := parseEntry(ref, value)
+		if err != nil {
+			return Ref{}, err
+		}
+		return Ref{Scheme: scheme, Entry: e}, nil
 	}
 	return Ref{}, fmt.Errorf("%w: %q (supported: file, keychain, secretservice)", ErrScheme, clip(scheme))
 }
@@ -156,11 +237,18 @@ func Open(ctx context.Context, ref string) (Secret, error) {
 			return Secret{}, err
 		}
 		return Secret{b}, nil
+	case "keepassxc":
+		b, err = openKeePassXC(ctx, r)
 	case "keychain":
 		b, err = call(ctx, func() ([]byte, error) { return keychainGet(r.Service, r.Account) })
 		err = mapKeychain(r, err)
 	default: // secretservice
-		b, err = call(ctx, func() ([]byte, error) { return secretserviceGet(r.Service, r.Account) })
+		b, err = call(ctx, func() ([]byte, error) {
+			if r.Attrs != "" {
+				return secretserviceGetAttrs(r.AttrMap())
+			}
+			return secretserviceGet(r.Service, r.Account)
+		})
 		err = mapSecretService(r, err)
 	}
 	if err != nil {

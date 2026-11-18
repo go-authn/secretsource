@@ -65,7 +65,7 @@ func TestParse(t *testing.T) {
 		{"exec:true", ErrScheme},
 		{"env:PIN", ErrScheme},
 		{"FILE:/x", ErrScheme}, // schemes are lowercase
-		{"keepassxc:Entry", ErrScheme},
+		{"keepassxc:Entry", ErrBadRef},
 		{"C:\\pin", ErrScheme},
 		{"http://x/y", ErrScheme},
 	}
@@ -269,7 +269,7 @@ func FuzzParse(f *testing.F) {
 			return
 		}
 		switch r.Scheme {
-		case "file", "keychain", "secretservice":
+		case "file", "keychain", "secretservice", "keepassxc":
 		default:
 			t.Fatalf("scheme %q must not parse", r.Scheme)
 		}
