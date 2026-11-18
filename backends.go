@@ -1,0 +1,94 @@
+package secretsource
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/go-freedesktop/secretservice"
+	"github.com/go-macos/keychain"
+)
+
+// The managers, replaceable by tests.
+var (
+	keychainGet      = keychain.Get
+	secretserviceGet = secretservice.Get
+)
+
+// Security framework statuses that mean "the keychain will not answer now".
+const (
+	errSecAuthFailed          = -25293
+	errSecInteractionNotAllow = -25308
+	errSecUserCanceled        = -128
+)
+
+func mapKeychain(r Ref, err error) error {
+	var ke *keychain.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrUnavailable):
+		return err
+	case errors.Is(err, keychain.ErrNotFound):
+		return fmt.Errorf("%w: keychain item %s/%s (add it with `security add-generic-password -s SERVICE -a ACCOUNT -w`)", ErrNotFound, r.Service, r.Account)
+	case errors.Is(err, keychain.ErrUnsupported):
+		return fmt.Errorf("%w: the Keychain exists on macOS only", ErrUnavailable)
+	case errors.As(err, &ke) && (ke.Status == errSecInteractionNotAllow || ke.Status == errSecAuthFailed || ke.Status == errSecUserCanceled):
+		return fmt.Errorf("%w: the Keychain is locked or the access was refused (OSStatus %d)", ErrUnavailable, ke.Status)
+	}
+	return fmt.Errorf("secretsource: %s: %w", r, err)
+}
+
+func mapSecretService(r Ref, err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrUnavailable):
+		return err
+	case errors.Is(err, secretservice.ErrNotFound):
+		return fmt.Errorf("%w: Secret Service item service=%s account=%s", ErrNotFound, r.Service, r.Account)
+	case errors.Is(err, secretservice.ErrUnavailable):
+		return fmt.Errorf("%w: no Secret Service on the session bus (start GNOME Keyring or enable KeePassXC's Secret Service Integration): %v", ErrUnavailable, err)
+	}
+	// An unlock the person dismissed, or a daemon error.
+	return fmt.Errorf("%w: %s: %v", ErrUnavailable, r, err)
+}
+
+// readFile reads a secret from a regular file that its owner alone can read or
+// write, and strips one trailing newline. The checks are made on the open
+// descriptor, not the path, so the file cannot be swapped between check and
+// read.
+func readFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = fmt.Errorf("%s: not a regular file", path)
+	}
+	if err == nil && st.Mode().Perm()&0o077 != 0 {
+		err = fmt.Errorf("%s: mode %04o, must not be readable or writable by group or others", path, st.Mode().Perm())
+	}
+	if err != nil {
+		return nil, err
+	}
+	b, err := io.ReadAll(io.LimitReader(f, MaxSize+1))
+	if err == nil && len(b) > MaxSize {
+		err = fmt.Errorf("%w: %s is longer than %d bytes", ErrTooLarge, path, MaxSize)
+	}
+	if err != nil {
+		clear(b)
+		return nil, err
+	}
+	n := len(b)
+	if n > 0 && b[n-1] == '\n' {
+		n--
+		if n > 0 && b[n-1] == '\r' {
+			n--
+		}
+	}
+	return b[:n], nil
+}
