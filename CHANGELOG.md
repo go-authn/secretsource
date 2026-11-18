@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.0
+
+- `store` writes `secretservice:KEY=VALUE[,...]` (go-freedesktop/secretservice v0.4.0
+  `SetByAttributes`): an existing match is refused unless `--replace`.
+
 ## v0.4.0
 
 - `secretsource store REF [--group G] [--login L] [--replace] [--generate N]` and the library

@@ -79,6 +79,7 @@ func storeCmd() *cobra.Command {
 			"characters instead and prints nothing secret.\n\n" +
 			"  keychain:SERVICE/ACCOUNT       macOS Keychain item\n" +
 			"  secretservice:SERVICE/ACCOUNT  Secret Service item\n" +
+			"  secretservice:KEY=VALUE,...    Secret Service item with exactly those attributes\n" +
 			"  keepassxc:URL                  KeePassXC entry with that URL (needs `keepassxc associate`);\n" +
 			"                                 an existing entry is refused unless --replace\n" +
 			"  file:PATH                      refused: no more plaintext files\n\n" +
