@@ -218,7 +218,7 @@ func TestStoreArguments(t *testing.T) {
 		{"file:/tmp/x", []byte("x"), StoreOptions{}, ErrNoStore},
 		{"keychain:a/b", []byte("x"), StoreOptions{Login: "me"}, ErrNoStore},
 		{"secretservice:a/b", []byte("x"), StoreOptions{Group: "g"}, ErrNoStore},
-		{"secretservice:Title=x", []byte("x"), StoreOptions{}, ErrNoStore},
+		{"secretservice:Title=x", []byte("x"), StoreOptions{Login: "me"}, ErrNoStore},
 	} {
 		if err := Store(ctx, c.ref, c.secret, c.o); !errors.Is(err, c.want) {
 			t.Errorf("%s: %v, want %v", c.ref, err, c.want)
@@ -282,6 +282,55 @@ func TestStoreKV(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoreAttributes(t *testing.T) {
+	ctx := context.Background()
+	oldSet := ssSetAttrs
+	t.Cleanup(func() { ssSetAttrs = oldSet })
+	var gotLabel string
+	var gotAttrs map[string]string
+	var gotSecret []byte
+	ssSetAttrs = func(l string, a map[string]string, s []byte) error {
+		gotLabel, gotAttrs, gotSecret = l, a, append([]byte(nil), s...)
+		return nil
+	}
+	const ref = "secretservice:UserName=me,Title=Yubikey PIN"
+
+	fakeSecretServiceAttrs(t, func(map[string]string) ([]byte, error) { return nil, secretservice.ErrNotFound })
+	if err := Store(ctx, ref, []byte("246810"), StoreOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if gotAttrs["Title"] != "Yubikey PIN" || gotAttrs["UserName"] != "me" || string(gotSecret) != "246810" || !strings.HasPrefix(gotLabel, "secretsource: ") {
+		t.Errorf("%q %v %q", gotLabel, gotAttrs, gotSecret)
+	}
+	// Present: refused, then written on request; the value read to test presence is wiped.
+	old := []byte("old")
+	fakeSecretServiceAttrs(t, func(map[string]string) ([]byte, error) { return old, nil })
+	gotSecret = nil
+	if err := Store(ctx, ref, []byte("new"), StoreOptions{}); !errors.Is(err, ErrExists) || gotSecret != nil {
+		t.Fatalf("%v", err)
+	}
+	if err := Store(ctx, ref, []byte("new"), StoreOptions{Replace: true}); err != nil || string(gotSecret) != "new" || string(old) == "old" {
+		t.Fatalf("%v %q %q", err, gotSecret, old)
+	}
+	// Several match, or the manager is away: the lookup's error, mapped.
+	fakeSecretServiceAttrs(t, func(map[string]string) ([]byte, error) { return nil, secretservice.ErrAmbiguous })
+	if err := Store(ctx, ref, []byte("x"), StoreOptions{Replace: true}); !errors.Is(err, ErrAmbiguous) {
+		t.Errorf("ambiguous: %v", err)
+	}
+	fakeSecretServiceAttrs(t, func(map[string]string) ([]byte, error) { return nil, secretservice.ErrNotFound })
+	ssSetAttrs = func(string, map[string]string, []byte) error { return secretservice.ErrUnavailable }
+	if err := Store(ctx, ref, []byte("x"), StoreOptions{}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("write: %v", err)
+	}
+}
+
+func fakeSecretServiceAttrs(t *testing.T, fn func(map[string]string) ([]byte, error)) {
+	t.Helper()
+	old := secretserviceGetAttrs
+	secretserviceGetAttrs = fn
+	t.Cleanup(func() { secretserviceGetAttrs = old })
 }
 
 func TestGenerate(t *testing.T) {

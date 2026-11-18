@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/ebitengine/purego v0.11.2
-	github.com/go-freedesktop/secretservice v0.3.0
+	github.com/go-freedesktop/secretservice v0.4.0
 	github.com/go-macos/keychain v0.3.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.59.0

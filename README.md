@@ -89,8 +89,10 @@ printf '%s' "$PIN" | secretsource store keychain:fido/yubikey-5c       # from st
 
 The secret is never taken from an argument or the environment. An existing entry is refused
 unless `--replace` (for KeePassXC that updates *that* entry, found by its URL, in place).
-`keychain:` and `secretservice:SERVICE/ACCOUNT` write an item; `secretservice:KEY=VALUE` and
-`file:` are refused (the library stores service and account only; no more plaintext files).
+`keychain:`, `secretservice:SERVICE/ACCOUNT` and `secretservice:KEY=VALUE[,...]` write an item
+(the last carries exactly those attributes; to replace one that has more attributes, name them
+all, since the Secret Service replaces only an item with the same attributes); `file:` is
+refused (no more plaintext files).
 
 For `keepassxc:` it uses the browser protocol's `set-login` (KeePassXC 2.8.0:
 `BrowserAction::handleSetLogin`, `BrowserService::addEntry`/`updateEntry`), so the entry always

@@ -71,9 +71,32 @@ func Store(ctx context.Context, ref string, secret []byte, o StoreOptions) error
 		return fmt.Errorf("%w: a login or group applies to keepassxc: only", ErrNoStore)
 	}
 	if r.Scheme == "secretservice" && r.Attrs != "" {
-		return fmt.Errorf("%w: secretservice:KEY=VALUE cannot be written (the library stores service and account only): use secretservice:SERVICE/ACCOUNT", ErrNoStore)
+		return storeAttrs(ctx, r, secret, o)
 	}
 	return storeKV(ctx, r, secret, o)
+}
+
+// storeAttrs writes a secretservice:KEY=VALUE item. The item carries exactly
+// those attributes; an existing item that has MORE attributes than the
+// reference names is found (the lookup is by subset) but is not the one that
+// is replaced, because the Secret Service replaces only an item with the same
+// attributes: name them all when replacing.
+func storeAttrs(ctx context.Context, r Ref, secret []byte, o StoreOptions) error {
+	b, err := call(ctx, func() ([]byte, error) { return secretserviceGetAttrs(r.AttrMap()) })
+	switch {
+	case err == nil:
+		clear(b)
+		if !o.Replace {
+			return fmt.Errorf("%w: %s", ErrExists, r)
+		}
+	case !isSSNotFound(err):
+		return mapSecretService(r, err)
+	}
+	_, err = call(ctx, func() ([]byte, error) { return nil, ssSetAttrs("secretsource: "+r.Attrs, r.AttrMap(), secret) })
+	if err != nil {
+		return mapSecretService(r, err)
+	}
+	return nil
 }
 
 // storeKV writes a keychain or secretservice item, refusing an existing one.

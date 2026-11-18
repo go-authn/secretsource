@@ -30,6 +30,7 @@ var (
 	getenv          = os.Getenv
 	keychainSet     = func(s, a string, b []byte) error { return keychain.Set(s, a, b) }
 	ssSet           = secretservice.Set
+	ssSetAttrs      = secretservice.SetByAttributes
 	ssAvailable     = secretservice.Available
 	userConfigDir   = os.UserConfigDir
 	currentUserName = func() string { return os.Getenv("USER") }
