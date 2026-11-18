@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+      - name: gofmt
+        if: runner.os != 'Windows'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: Vet
+        run: go vet ./...
+      - name: Test with coverage
+        run: go test -count=1 -coverprofile=cover.out ./...
+      - name: Coverage must be 100%
+        if: runner.os == 'Linux'
+        run: go tool cover -func=cover.out | tail -1 | grep -q '100.0%'
+      - name: Race
+        if: runner.os != 'Windows'
+        run: go test -race -count=1 ./...
+      - name: Fuzz the reference parser
+        if: runner.os == 'Linux'
+        run: go test -run '^$' -fuzz FuzzParse -fuzztime 30s .
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
