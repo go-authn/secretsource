@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 
 	"github.com/go-freedesktop/secretservice"
 	"github.com/go-macos/keychain"
@@ -81,7 +82,17 @@ var validHash = regexp.MustCompile(`^[0-9a-fA-F]{1,128}$`).MatchString
 // entryURL is what get-logins is asked for: the URL as the entry holds it.
 func (r Ref) entryURL() string { return r.Entry }
 
-func openKeePassXC(ctx context.Context, r Ref) ([]byte, error) {
+// session is a KeePassXC connection that has proved its association.
+type session struct {
+	k    *conn
+	keys []map[string]string
+}
+
+func (s *session) close() { s.k.close() }
+
+// openSession connects, finds which database is open, loads this machine's
+// association with it and has KeePassXC confirm it (test-associate).
+func openSession(ctx context.Context) (*session, error) {
 	store := newAssocStore()
 	nc, err := keepassxcDial(ctx)
 	if err != nil {
@@ -91,37 +102,68 @@ func openKeePassXC(ctx context.Context, r Ref) ([]byte, error) {
 	if err != nil {
 		return nil, waiting(err)
 	}
-	defer k.close()
+	fail := func(err error) (*session, error) {
+		k.close()
+		return nil, err
+	}
 	hash, err := k.databaseHash()
 	if err != nil {
-		return nil, waiting(err)
+		return fail(waiting(err))
 	}
 	a, err := store.load(hash)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	keys := []map[string]string{{"id": a.ID, "key": a.Key}}
 	if err := k.call("test-associate", map[string]any{"id": a.ID, "key": a.Key}, &struct{}{}); err != nil {
 		if errors.Is(err, ErrNotAssociated) {
-			return nil, fmt.Errorf("%w: KeePassXC no longer knows the association %q; run `secretsource keepassxc associate`", ErrNotAssociated, a.ID)
+			return fail(fmt.Errorf("%w: KeePassXC no longer knows the association %q; run `secretsource keepassxc associate`", ErrNotAssociated, a.ID))
 		}
-		return nil, waiting(err)
+		return fail(waiting(err))
+	}
+	return &session{k: k, keys: []map[string]string{{"id": a.ID, "key": a.Key}}}, nil
+}
+
+// loginEntry is an entry get-logins returned.
+type loginEntry struct {
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	UUID     string `json:"uuid"`
+	Group    string `json:"group"`
+}
+
+// logins asks KeePassXC for the entries whose URL field matches url. NEVER
+// pass a keepassxc://by-uuid or by-path URL here (it crashes KeePassXC 2.8.0
+// on an entry without a URL): Parse refuses them, and so does this.
+func (s *session) logins(url string) ([]loginEntry, error) {
+	if strings.HasPrefix(url, "keepassxc://") {
+		return nil, fmt.Errorf("%w: %q", ErrBadRef, clip(url))
 	}
 	var res struct {
-		Entries []struct {
-			Password string `json:"password"`
-		} `json:"entries"`
+		Entries []loginEntry `json:"entries"`
 	}
-	if err := k.call("get-logins", map[string]any{"url": r.entryURL(), "keys": keys}, &res); err != nil {
+	if err := s.k.call("get-logins", map[string]any{"url": url, "keys": s.keys}, &res); err != nil {
 		return nil, waiting(err)
 	}
-	switch len(res.Entries) {
+	return res.Entries, nil
+}
+
+func openKeePassXC(ctx context.Context, r Ref) ([]byte, error) {
+	s, err := openSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer s.close()
+	es, err := s.logins(r.entryURL())
+	if err != nil {
+		return nil, err
+	}
+	switch len(es) {
 	case 0:
 		return nil, fmt.Errorf("%w: no KeePassXC entry for %s", ErrNotFound, r)
 	case 1:
-		return []byte(res.Entries[0].Password), nil
+		return []byte(es[0].Password), nil
 	}
-	return nil, fmt.Errorf("%w: %d entries for %s; name one: give a single entry that URL", ErrAmbiguous, len(res.Entries), r)
+	return nil, fmt.Errorf("%w: %d entries for %s; name one: give a single entry that URL", ErrAmbiguous, len(es), r)
 }
 
 // waiting adds the usual reason a KeePassXC call does not come back.

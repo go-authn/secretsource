@@ -77,7 +77,31 @@ BrowserShared, BrowserAction, BrowserMessageBuilder, BrowserService).
 KeePassXC answers whichever database is open; with a locked database it opens
 its unlock dialog and waits for you (up to the 2-minute bound).
 
-## Storing a secret elsewhere
+## Storing a secret: `secretsource store`
+
+No entry has to be made by hand:
+
+```sh
+secretsource store 'keepassxc:https://fido.invalid/yubikey-5c'        # typed twice, echo off
+secretsource store 'keepassxc:https://fido.invalid/yubikey-5c' --generate 24   # draws 24 letters and digits, prints nothing secret
+printf '%s' "$PIN" | secretsource store keychain:fido/yubikey-5c       # from stdin when it is not a terminal
+```
+
+The secret is never taken from an argument or the environment. An existing entry is refused
+unless `--replace` (for KeePassXC that updates *that* entry, found by its URL, in place).
+`keychain:` and `secretservice:SERVICE/ACCOUNT` write an item; `secretservice:KEY=VALUE` and
+`file:` are refused (the library stores service and account only; no more plaintext files).
+
+For `keepassxc:` it uses the browser protocol's `set-login` (KeePassXC 2.8.0:
+`BrowserAction::handleSetLogin`, `BrowserService::addEntry`/`updateEntry`), so the entry always
+carries the URL that finds it again. The login defaults to the URL's host (`--login`); 2.8.0 titles
+the new entry after that host and ignores a title (BrowserService.cpp:891), so `--title` is refused;
+the group is `KeePassXC-Browser Passwords` (created under the root) unless `--group Keys/FIDO`
+(names below the root). The duplicate check is a lookup by URL, never by uuid or path. KeePassXC
+shows its own dialogs (an access request for the existing entry, an update confirmation) and saves
+the database according to its settings.
+
+## Storing a secret by hand
 
 macOS Keychain: `security add-generic-password -s fido -a yubikey-5c -w` (`-w`
 last, with no value, asks on the terminal; the secret is not in argv), then

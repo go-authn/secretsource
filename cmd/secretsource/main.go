@@ -3,6 +3,7 @@
 //
 //	secretsource keepassxc associate   # once: approve this machine in KeePassXC
 //	secretsource check REF             # resolve REF, say whether it worked, print nothing secret
+//	secretsource store REF             # store a secret (typed twice, or from stdin; or --generate N)
 //
 // It never prints a secret.
 package main
@@ -72,7 +73,7 @@ func RootCmd() *cobra.Command {
 			return nil
 		},
 	})
-	root.AddCommand(kp, &cobra.Command{
+	root.AddCommand(kp, storeCmd(), &cobra.Command{
 		Use:   "check REF",
 		Short: "Resolve a reference and say whether it worked (never prints the secret)",
 		Args:  cobra.ExactArgs(1),
