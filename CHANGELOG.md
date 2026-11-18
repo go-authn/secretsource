@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0
+
+- `secretsource store REF [--group G] [--login L] [--replace] [--generate N]` and the library
+  `Store(ctx, ref, secret, StoreOptions)` / `Generate(n)`: write a secret into `keychain:`,
+  `secretservice:SERVICE/ACCOUNT` or `keepassxc:URL` (browser protocol `set-login`: the entry
+  carries the URL by construction; duplicate check by URL; `--replace` updates that entry by its
+  uuid; several matches are refused and named). `file:` and `secretservice:KEY=VALUE` are refused.
+  The secret is typed twice with echo off or read from stdin, never from argv or the environment.
+  `--title` is refused for KeePassXC: 2.8.0 ignores it.
+- New errors `ErrExists`, `ErrNoStore`. The "no scheme" hint lists `keepassxc:`.
+- `FuzzResolveGroup` (the get-database-groups tree) with committed corpus.
+
 ## v0.3.1
 
 - Fix: `secretsource check` printed `secretsource: secretsource: bad reference ...`

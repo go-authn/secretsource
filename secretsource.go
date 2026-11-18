@@ -162,7 +162,7 @@ func parseEntry(ref, v string) (string, error) {
 func Parse(ref string) (Ref, error) {
 	scheme, value, ok := strings.Cut(ref, ":")
 	if !ok {
-		return Ref{}, fmt.Errorf("%w: %q has no scheme; write file:PATH, keychain:SERVICE/ACCOUNT or secretservice:SERVICE/ACCOUNT", ErrBadRef, clip(ref))
+		return Ref{}, fmt.Errorf("%w: %q has no scheme; write file:PATH, keychain:SERVICE/ACCOUNT, secretservice:SERVICE/ACCOUNT or keepassxc:URL", ErrBadRef, clip(ref))
 	}
 	if value == "" {
 		return Ref{}, fmt.Errorf("%w: %q names nothing after the colon", ErrBadRef, clip(ref))
@@ -193,7 +193,7 @@ func Parse(ref string) (Ref, error) {
 		}
 		return Ref{Scheme: scheme, Entry: e}, nil
 	}
-	return Ref{}, fmt.Errorf("%w: %q (supported: file, keychain, secretservice)", ErrScheme, clip(scheme))
+	return Ref{}, fmt.Errorf("%w: %q (supported: file, keychain, secretservice, keepassxc)", ErrScheme, clip(scheme))
 }
 
 func hasControl(s string) bool {

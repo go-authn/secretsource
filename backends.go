@@ -25,6 +25,8 @@ const (
 	errSecUserCanceled        = -128
 )
 
+func isSSNotFound(err error) bool { return errors.Is(err, secretservice.ErrNotFound) }
+
 func mapKeychain(r Ref, err error) error {
 	var ke *keychain.Error
 	switch {

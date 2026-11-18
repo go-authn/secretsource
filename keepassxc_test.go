@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -40,6 +41,12 @@ type fakeKPX struct {
 	// that finds an entry without a URL kills the process.
 	crashOnURLLess bool
 	crashed        bool
+	// groups is the tree get-database-groups answers with (nil: error 16).
+	groups []map[string]any
+	// setCalls are the inner set-login requests; setDeclines makes it answer "error".
+	setCalls    []map[string]any
+	setDeclines bool
+	nextUUID    int
 }
 
 func newFake() *fakeKPX {
@@ -146,6 +153,49 @@ func (f *fakeKPX) serve(s net.Conn) {
 				continue
 			}
 			inner["id"] = id
+		case "get-database-groups":
+			if f.groups == nil {
+				write(map[string]string{"action": action, "errorCode": "16", "error": "no groups found"})
+				continue
+			}
+			inner["groups"] = map[string]any{"groups": f.groups}
+		case "set-login":
+			// BrowserAction::handleSetLogin: no uuid adds, a uuid updates (BrowserService::updateEntry).
+			f.setCalls = append(f.setCalls, in)
+			url, _ := in["url"].(string)
+			login, _ := in["login"].(string)
+			pw, _ := in["password"].(string)
+			uuid, _ := in["uuid"].(string)
+			ok := !f.setDeclines
+			if uuid == "" {
+				f.nextUUID++
+				grp, _ := in["group"].(string)
+				if grp == "" {
+					grp = "KeePassXC-Browser Passwords"
+				}
+				f.entries[url] = append(f.entries[url], map[string]any{
+					"login": login, "password": pw, "name": "added", "group": grp,
+					"uuid": fmt.Sprintf("%032x", f.nextUUID),
+				})
+			} else {
+				ok = false
+				for _, e := range f.entries[url] {
+					if e["uuid"] != uuid || f.setDeclines {
+						continue
+					}
+					// updateEntry: refuses an entry with no user name, and an update that changes nothing.
+					if e["login"] != "" && (e["login"] != login || e["password"] != pw) {
+						e["login"], e["password"] = login, pw
+						ok = true
+					}
+				}
+			}
+			inner["count"], inner["entries"] = nil, nil
+			if ok {
+				inner["error"] = "success"
+			} else {
+				inner["error"] = "error"
+			}
 		case "get-logins":
 			url, _ := in["url"].(string)
 			es := f.entries[url]
