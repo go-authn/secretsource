@@ -1,8 +1,13 @@
 # Changelog
 
-## v0.5.1
+## v0.6.0
 
 Security audit 2026-11-21.
+
+**Upgrade:** a `file:` reference whose file is empty (or holds only a line ending)
+now fails with `ErrEmpty` instead of returning an empty secret; a caller that relied
+on an empty file meaning "no secret" must handle that error. The legacy
+`$XDG_RUNTIME_DIR/…BrowserServer` symlink is no longer followed by `keepassxc:`.
 
 - `keepassxc:` (Unix): the socket is refused when it is a symbolic link, or when its
   directory is owned by another user or writable by group or others (on Linux the
