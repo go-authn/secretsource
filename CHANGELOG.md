@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.1
+
+Security audit 2026-11-21.
+
+- `keepassxc:` (Unix): the socket is refused when it is a symbolic link, or when its
+  directory is owned by another user or writable by group or others (on Linux the
+  fallback is `/tmp/runtime-$USER`, which anyone can pre-create), and the connected
+  peer's uid is checked after the dial (`SO_PEERCRED`, `LOCAL_PEERCRED`; macOS and
+  Linux), so a path re-pointed between the check and the dial is caught. The legacy
+  `$XDG_RUNTIME_DIR/org.keepassxc.KeePassXC.BrowserServer` symlink is no longer
+  followed; the real socket under `app/org.keepassxc.KeePassXC/` is.
+- `file:` on a FIFO no longer blocks past the context: the file is opened with
+  `O_NONBLOCK` and refused as not a regular file.
+- `file:` holding nothing (or only a line ending) is refused with `ErrEmpty`, like
+  every other backend, instead of returning an empty secret: a truncated password
+  file used to become an empty PIN. Behaviour change.
+
 ## v0.5.0
 
 - `store` writes `secretservice:KEY=VALUE[,...]` (go-freedesktop/secretservice v0.4.0

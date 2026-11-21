@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/go-freedesktop/secretservice"
 	"github.com/go-macos/keychain"
@@ -69,7 +68,7 @@ func mapSecretService(r Ref, err error) error {
 // descriptor, not the path, so the file cannot be swapped between check and
 // read.
 func readFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := openSecretFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +97,11 @@ func readFile(path string) ([]byte, error) {
 		if n > 0 && b[n-1] == '\r' {
 			n--
 		}
+	}
+	if n == 0 {
+		// A truncated or half-written file must not become an empty PIN or
+		// password; the other backends refuse an empty entry the same way.
+		return nil, fmt.Errorf("%w: %s", ErrEmpty, path)
 	}
 	return b[:n], nil
 }
