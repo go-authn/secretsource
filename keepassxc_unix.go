@@ -28,26 +28,53 @@ func ownedByMe(fi os.FileInfo) bool {
 // checked with checkPeer, because a path can change between the check and the
 // dial.
 func checkSocket(path string) error {
-	dir := filepath.Dir(path)
-	dst, err := os.Lstat(dir)
+	if err := checkDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	st, err := lstat(path)
 	if err != nil {
 		return err
 	}
-	if !ownedByMe(dst) {
-		return fmt.Errorf("%s belongs to another user", dir)
-	}
-	if dst.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("%s is writable by group or others", dir)
-	}
-	st, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if st.Mode()&os.ModeSymlink != 0 {
+	if st.mode&os.ModeSymlink != 0 {
 		return fmt.Errorf("%s is a symbolic link", path)
 	}
-	if st.Mode()&os.ModeSocket == 0 {
+	if st.mode&os.ModeSocket == 0 {
 		return fmt.Errorf("%s is not a socket", path)
+	}
+	return nil
+}
+
+// pathInfo is what Lstat says a path is. It is a value, so that a caller that
+// goes on after an error reads a path that is nobody's and nothing, never a nil.
+type pathInfo struct {
+	mode os.FileMode
+	mine bool
+}
+
+func lstat(path string) (pathInfo, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return pathInfo{}, err
+	}
+	return pathInfo{mode: fi.Mode(), mine: ownedByMe(fi)}, nil
+}
+
+// checkDir refuses a directory that is a symbolic link, belongs to another user
+// or is writable by group or others: what is written there, or read from there,
+// could be put or swapped by someone else.
+func checkDir(dir string) error {
+	d, err := lstat(dir)
+	if err != nil {
+		return err
+	}
+	if d.mode&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symbolic link", dir)
+	}
+	if !d.mine {
+		return fmt.Errorf("%s belongs to another user", dir)
+	}
+	if d.mode.Perm()&0o022 != 0 {
+		return fmt.Errorf("%s is writable by group or others", dir)
 	}
 	return nil
 }

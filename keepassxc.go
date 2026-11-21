@@ -226,7 +226,7 @@ func Associate(ctx context.Context) (Association, error) {
 	if err != nil {
 		return Association{}, waiting(err)
 	}
-	idPub, _, err := box.GenerateKey(randReader)
+	idPub, err := identityKey()
 	if err != nil {
 		return Association{}, err
 	}
@@ -243,6 +243,17 @@ func Associate(ctx context.Context) (Association, error) {
 		return Association{}, err
 	}
 	return Association{Database: hash, ID: res.ID}, nil
+}
+
+// identityKey makes the identification public key. It is a value, not the
+// pointer box.GenerateKey returns, so that nothing is dereferenced after a
+// failure.
+func identityKey() ([32]byte, error) {
+	pub, _, err := box.GenerateKey(randReader)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return *pub, nil
 }
 
 // assoc is what is kept per database.
@@ -325,11 +336,39 @@ func (f fileStore) save(hash string, a assoc) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	if err := checkDir(dir); err != nil {
+		return fmt.Errorf("keepassxc: not keeping the association: %w", err)
+	}
 	b, _ := json.Marshal(a)
-	return os.WriteFile(p, b, 0o600)
+	return writeAtomic(p, b)
+}
+
+// createTemp is replaceable by tests.
+var createTemp = os.CreateTemp
+
+// writeAtomic writes b (mode 0600) to a new file next to p, then renames it onto
+// p. os.WriteFile on p itself would follow a symbolic link left there and keep
+// the mode of a file already there; a rename replaces whatever p is, and a reader
+// never sees half a file.
+func writeAtomic(p string, b []byte) error {
+	tmp, err := createTemp(filepath.Dir(p), ".keepassxc-*.tmp")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.Write(b)
+	if err := errors.Join(werr, tmp.Close()); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), p); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
 func notAssociated(hash string) error {

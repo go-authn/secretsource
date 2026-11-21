@@ -10,3 +10,7 @@ import "net"
 func checkSocket(string) error { return nil }
 
 func checkPeer(net.Conn) error { return nil }
+
+// checkDir: Windows has no owner or mode bits to read; the configuration
+// directory is under the user's profile, whose ACL keeps others out.
+func checkDir(string) error { return nil }
