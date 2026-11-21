@@ -3,6 +3,7 @@
 package secretsource
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -63,6 +64,43 @@ func TestCheckSocketDirectoryAndSymlink(t *testing.T) {
 	getuid = func() int { return os.Getuid() + 1 }
 	if err := checkSocket(p); err == nil || !strings.Contains(err.Error(), "another user") {
 		t.Errorf("foreign directory: %v", err)
+	}
+}
+
+func TestCheckSocketRefusesWhatIsNotThere(t *testing.T) {
+	d := shortDir(t)
+	if err := checkSocket(filepath.Join(d, "missing", sockName)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("missing directory: %v", err)
+	}
+	if err := checkSocket(filepath.Join(d, sockName)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("missing socket: %v", err)
+	}
+	f := filepath.Join(d, sockName)
+	if err := os.WriteFile(f, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSocket(f); err == nil || !strings.Contains(err.Error(), "not a socket") {
+		t.Errorf("a regular file: %v", err)
+	}
+}
+
+func TestCheckPeerRefusesWhatItCannotAsk(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	if err := checkPeer(a); err == nil {
+		t.Error("a net.Pipe has no peer credentials and was accepted")
+	}
+	d := shortDir(t)
+	p, l := listenIn(t, d)
+	defer l.Close()
+	c, err := net.Dial("unix", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if err := checkPeer(c); err == nil {
+		t.Error("a closed connection was accepted")
 	}
 }
 

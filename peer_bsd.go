@@ -13,5 +13,5 @@ func peerUID(fd int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int(x.Uid), nil
+	return int(x.Uid), nil // x is never nil without an error
 }

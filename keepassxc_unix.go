@@ -3,6 +3,7 @@
 package secretsource
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -13,22 +14,26 @@ import (
 // getuid is replaced by tests.
 var getuid = os.Getuid
 
-// checkSocket refuses a path that is not a socket owned by this user, reached
-// without a symlink, in a directory that only this user can write: nothing is
-// sent to a socket someone else could have put there or re-pointed (on Linux
-// the fallback directory is under /tmp). It is a first filter; the connection
-// itself is then checked with checkPeer, because a path can change between the
-// check and the dial.
+// ownedByMe reports whether fi belongs to this user; what it cannot tell, it
+// refuses.
+func ownedByMe(fi os.FileInfo) bool {
+	sys, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(sys.Uid) == getuid()
+}
+
+// checkSocket refuses a path that is not a socket reached without a symlink, in
+// a directory that only this user can write: nothing is sent to a socket
+// someone else could have put there or re-pointed (on Linux the fallback
+// directory is under /tmp). It is a first filter; the connection itself is then
+// checked with checkPeer, because a path can change between the check and the
+// dial.
 func checkSocket(path string) error {
 	dir := filepath.Dir(path)
 	dst, err := os.Lstat(dir)
 	if err != nil {
 		return err
 	}
-	if !dst.IsDir() {
-		return fmt.Errorf("%s is not a directory", dir)
-	}
-	if sys, ok := dst.Sys().(*syscall.Stat_t); ok && int(sys.Uid) != getuid() {
+	if !ownedByMe(dst) {
 		return fmt.Errorf("%s belongs to another user", dir)
 	}
 	if dst.Mode().Perm()&0o022 != 0 {
@@ -44,9 +49,6 @@ func checkSocket(path string) error {
 	if st.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("%s is not a socket", path)
 	}
-	if sys, ok := st.Sys().(*syscall.Stat_t); ok && int(sys.Uid) != getuid() {
-		return fmt.Errorf("%s belongs to another user", path)
-	}
 	return nil
 }
 
@@ -55,22 +57,24 @@ func checkSocket(path string) error {
 func checkPeer(c net.Conn) error {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
-		return nil
+		return fmt.Errorf("%T is not a Unix socket connection", c)
 	}
-	raw, err := uc.SyscallConn()
+	uid, err := peerOf(uc)
 	if err != nil {
-		return err
-	}
-	var uid int
-	var perr error
-	if err := raw.Control(func(fd uintptr) { uid, perr = peerUID(int(fd)) }); err != nil {
-		return err
-	}
-	if perr != nil {
-		return fmt.Errorf("cannot read the peer's credentials: %w", perr)
+		return fmt.Errorf("cannot read the peer's credentials: %w", err)
 	}
 	if uid != getuid() {
 		return fmt.Errorf("the socket's peer belongs to another user")
 	}
 	return nil
+}
+
+func peerOf(uc *net.UnixConn) (int, error) {
+	var uid int
+	var perr error
+	raw, err := uc.SyscallConn()
+	if err == nil {
+		err = raw.Control(func(fd uintptr) { uid, perr = peerUID(int(fd)) })
+	}
+	return uid, errors.Join(err, perr)
 }
