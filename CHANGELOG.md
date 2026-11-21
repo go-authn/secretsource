@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.6.1
+
+Fixes #16. No API change.
+
+- `keepassxc:` association file (the fallback store, used when neither the macOS
+  Keychain nor a Secret Service is there): the key is written to a new temporary
+  file in the same directory and renamed onto the final name, so a symbolic link
+  left at that name is replaced, not followed, and a file of looser mode comes out
+  0600. On Unix the directory is checked first, as the socket's is: owned by this
+  user, not writable by group or others, not a symbolic link; otherwise nothing is
+  written.
+- Tests: every guard that a mutation sweep found unheld (four survivors) is now
+  asserted by the error it returns on both sides; nine guards that only a nil
+  dereference after the missing check turned red remain, see the pull request.
+
 ## v0.6.0
 
 Security audit 2026-11-21.
