@@ -2,6 +2,11 @@
 
 package secretsource
 
-// checkSocket: no Unix sockets here (KeePassXC on Windows uses a named pipe,
-// not implemented yet), so socketCandidates fails before this is reached.
+import "net"
+
+// checkSocket and checkPeer: no Unix sockets here (KeePassXC on Windows uses a
+// named pipe, not implemented yet), so socketCandidates fails before these are
+// reached.
 func checkSocket(string) error { return nil }
+
+func checkPeer(net.Conn) error { return nil }

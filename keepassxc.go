@@ -69,7 +69,11 @@ func dialKeePassXC(ctx context.Context) (net.Conn, error) {
 		var d net.Dialer
 		c, err := d.DialContext(ctx, "unix", p)
 		if err == nil {
-			return c, nil
+			if last = checkPeer(c); last == nil {
+				return c, nil
+			}
+			c.Close()
+			continue
 		}
 		last = err
 	}

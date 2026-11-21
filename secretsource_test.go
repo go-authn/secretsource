@@ -104,13 +104,18 @@ func TestOpenFile(t *testing.T) {
 		{"1234\r\n", "1234"},
 		{"1234", "1234"},
 		{"12\n34\n", "12\n34"},
-		{"\n", ""},
-		{"", ""},
-		{"\r\n", ""},
 	} {
 		s, err := Open(context.Background(), "file:"+writeSecret(t, c.content, 0o600))
 		if err != nil || string(s.Bytes()) != c.want {
 			t.Errorf("%q: got %q, %v; want %q", c.content, s.Bytes(), err, c.want)
+		}
+		s.Close()
+	}
+	// A truncated file is not an empty secret.
+	for _, content := range []string{"", "\n", "\r\n"} {
+		s, err := Open(context.Background(), "file:"+writeSecret(t, content, 0o600))
+		if !errors.Is(err, ErrEmpty) {
+			t.Errorf("%q: got %q, %v; want ErrEmpty", content, s.Bytes(), err)
 		}
 		s.Close()
 	}
