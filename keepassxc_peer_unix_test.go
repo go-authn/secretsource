@@ -3,10 +3,12 @@
 package secretsource
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -101,6 +103,52 @@ func TestCheckPeerRefusesWhatItCannotAsk(t *testing.T) {
 	c.Close()
 	if err := checkPeer(c); err == nil || !strings.Contains(err.Error(), "cannot read the peer's credentials") {
 		t.Errorf("a closed connection: %v", err)
+	}
+}
+
+// dialKeePassXC closes and refuses a connection whose peer is not this user.
+func TestDialRefusesAForeignPeer(t *testing.T) {
+	d := shortDir(t)
+	_, l := listenIn(t, d)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
+		}
+	}()
+	oldOS, oldEnv, oldUID := goos, getenv, getuid
+	defer func() { goos, getenv, getuid = oldOS, oldEnv, oldUID }()
+	goos = "linux"
+	getenv = func(string) string { return d }
+	if c, err := dialKeePassXC(context.Background()); err != nil {
+		t.Fatalf("own peer: %v", err)
+	} else {
+		c.Close()
+	}
+	// Directory and socket pass as ours; only the peer check says no.
+	calls := 0
+	getuid = func() int {
+		calls++
+		if calls <= 1 { // the directory check
+			return oldUID()
+		}
+		return oldUID() + 1
+	}
+	_, err := dialKeePassXC(context.Background())
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "peer belongs to another user") {
+		t.Fatalf("foreign peer: %v", err)
+	}
+}
+
+func TestPeerUIDOfABadDescriptorIsAnError(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" && runtime.GOOS != "freebsd" {
+		t.Skip("no peer credentials on this system")
+	}
+	if _, err := peerUID(-1); err == nil {
+		t.Fatal("no error for a bad descriptor")
 	}
 }
 
