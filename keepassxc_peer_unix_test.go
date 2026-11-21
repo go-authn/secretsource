@@ -99,8 +99,8 @@ func TestCheckPeerRefusesWhatItCannotAsk(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Close()
-	if err := checkPeer(c); err == nil {
-		t.Error("a closed connection was accepted")
+	if err := checkPeer(c); err == nil || !strings.Contains(err.Error(), "cannot read the peer's credentials") {
+		t.Errorf("a closed connection: %v", err)
 	}
 }
 
