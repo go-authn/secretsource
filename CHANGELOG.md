@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.9.0
+
+- **Behaviour change, security:** `file:` no longer follows a symbolic link at
+  the last component. On Unix it opens with `O_NOFOLLOW` (the kernel refuses a
+  link, dangling or not, so there is no window between a check and the open);
+  the error says the path is a symlink and to point at the file it names, and
+  never contains the secret. A link could reach a 0600 file owned by another
+  account, or be planted in a writable directory. Three downstream modules had
+  added their own `Lstat` refusal for this.
+- On Unix the opened file must also be owned by the calling user (effective
+  uid); until now only the mode was checked. Root is not exempted: a root-owned
+  0600 file cannot be opened by anyone else, and a root process should not take a
+  secret from another account's file.
+- Windows: the file is opened with `FILE_FLAG_OPEN_REPARSE_POINT` and refused if
+  its attributes on the open handle show a reparse point (a symbolic link, a
+  junction, a mount point), before the v0.7.0 access-list check. Gap: a reparse
+  point of a kind some tool uses on ordinary files (for example a cloud-files
+  placeholder) is refused too; point at a plain local copy.
+- No no-follow read primitive exists in go-authn/harden `privfile` (v0.2.0 has
+  `Write` only), so the open lives here, beside `openNoFollow`.
+- Documentation: the README states what `systemd-creds:` requires of
+  `$CREDENTIALS_DIRECTORY` (absolute, no access for "other"; systemd makes it
+  0700).
+- **Migrating:** if a `file:` reference goes through a symlink, replace the path
+  by the file the link names (`readlink -f PATH`). Symlinked directories earlier
+  in the path still work.
+
 ## v0.8.1
 
 - The KeePassXC association file is written by
