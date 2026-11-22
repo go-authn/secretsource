@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.10.0
+
+- New package `github.com/go-authn/secretsource/secretflag`: a secret flag
+  `--<name>` (deprecated, visible in `ps`) with its `--<name>-from <ref>` twin,
+  mutually exclusive, resolved through `secretsource.Open`. `Add` registers
+  the pair on a cobra command, `AddStd` on a standard-library `flag.FlagSet`
+  (with aliases such as `-t`); `Resolve` reads the references. It replaces the
+  copies in weft-ha-forgejo, weft-ha-irods and go-signage. No new dependency:
+  cobra was already required.
+
 ## v0.9.0
 
 - **Behaviour change, security:** `file:` no longer follows a symbolic link at
