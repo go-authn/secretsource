@@ -76,13 +76,18 @@ func Delete(ctx context.Context, ref string) error {
 	case "keepassxc":
 		return deleteKeePassXC(ctx, r)
 	case "keychain":
+		// The seam is read here, not inside the goroutine call starts: a call
+		// abandoned at the deadline must not read a variable the caller has
+		// moved on from.
+		get := keychainGet
 		return deleteKV(ctx, r,
-			func() ([]byte, error) { return keychainGet(r.Service, r.Account) },
+			func() ([]byte, error) { return get(r.Service, r.Account) },
 			keychainDelete, isKeychainNotFound, mapKeychain)
 	}
+	getAttrs := secretserviceGetAttrs
 	return deleteKV(ctx, r,
 		func() ([]byte, error) {
-			return secretserviceGetAttrs(map[string]string{ssServiceKey: r.Service, ssAccountKey: r.Account})
+			return getAttrs(map[string]string{ssServiceKey: r.Service, ssAccountKey: r.Account})
 		},
 		ssDelete, isSSNotFound, mapSecretService)
 }
