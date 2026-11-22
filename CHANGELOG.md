@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.11.0
+
+- New `Delete(ctx, ref) error`, the counterpart of `Store`, so a caller that
+  keeps a token in the keychain can remove it on logout. `keychain:` and
+  `secretservice:SERVICE/ACCOUNT` remove the item (several Secret Service
+  matches: `ErrAmbiguous`, nothing deleted); `keepassxc:URL` uses the browser
+  protocol's `delete-entry` (BrowserAction.cpp:105, handleDeleteEntry :473,
+  BrowserService.cpp:980 in 2.8.0): KeePassXC asks for confirmation and moves
+  the entry to its Recycle Bin, so the password stays in the database until
+  the bin is emptied.
+- An absent entry is an error that is both `ErrNotFound` and `fs.ErrNotExist`,
+  so "already gone" can be treated as success on purpose.
+- New `ErrNoDelete`: `file:`, `systemd-creds:` and `secretservice:KEY=VALUE`
+  are refused (this package never manages a file or credential it did not
+  store, and an attribute lookup names no single item).
+- The entry is looked up before it is deleted (the managers have no existence
+  call); a keychain or Secret Service value is wiped at once and a KeePassXC
+  reply is decoded without its password. Nothing secret is returned or logged.
+
 ## v0.10.0
 
 - New package `github.com/go-authn/secretsource/secretflag`: a secret flag
