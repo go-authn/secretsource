@@ -173,6 +173,11 @@ b := secretflag.Add(cmd, "password", &password, "the admin password") // cobra
 if err := secretflag.Resolve(ctx, b); err != nil { return err }
 ```
 
+A secret that never had a plain flag registers only `--<name>-from`:
+`secretflag.AddFrom(cmd, "seal-key", &key, "the sealing key")`, or
+`secretflag.AddFromList(cmd, "seal-old-key", &olds, "previous keys")` for a
+repeatable flag (key rotation).
+
 ## Storing a secret: `secretsource store`
 
 No entry has to be made by hand:

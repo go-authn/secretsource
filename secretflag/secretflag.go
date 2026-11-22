@@ -7,6 +7,9 @@
 // deprecated (a warning goes to stderr), and is mutually exclusive with its
 // twin.
 //
+// [AddFrom] and [AddFromList] register only the -from flag, for a secret that
+// never had a plain form.
+//
 // [Add] registers the pair on a cobra command; [AddStd] on a standard
 // library [flag.FlagSet]. Both return a [*Binding] to pass to [Resolve]
 // once the flags are parsed.
@@ -40,6 +43,10 @@ type Binding struct {
 	dst  *string
 	ref  string
 
+	// AddFromList only: every --name-from, in order, resolved into list.
+	list *[]string
+	refs []string
+
 	// Standard-library flag sets only: cobra enforces exclusivity and
 	// prints the deprecation itself.
 	fs      *flag.FlagSet
@@ -62,6 +69,36 @@ func Add(cmd *cobra.Command, name string, dst *string, usage string) *Binding {
 	f.StringVar(&b.ref, name+"-from", "", usageFrom(usage, name))
 	cmd.MarkFlagsMutuallyExclusive(name, name+"-from")
 	return b
+}
+
+// AddFrom registers only --name-from, for a secret born after the plain flag
+// was deprecated: there is no --name twin whose value would show in ps.
+func AddFrom(cmd *cobra.Command, name string, dst *string, usage string) *Binding {
+	b := &Binding{name: name, dst: dst}
+	cmd.Flags().StringVar(&b.ref, name+"-from", "", usageFrom(usage, name))
+	return b
+}
+
+// AddFromList registers a repeatable --name-from, with no plain twin; [Resolve]
+// appends every resolved secret to dst, in command-line order.
+func AddFromList(cmd *cobra.Command, name string, dst *[]string, usage string) *Binding {
+	b := &Binding{name: name, list: dst}
+	cmd.Flags().StringArrayVar(&b.refs, name+"-from", nil, usage+" (repeatable) read from a secret reference, e.g. systemd-creds:"+name)
+	return b
+}
+
+// readRef opens ref and returns the secret without trailing newlines.
+func readRef(ctx context.Context, name, ref string) (string, error) {
+	raw, err := open(ctx, ref)
+	if err != nil {
+		return "", fmt.Errorf("--%s-from: %w", name, err)
+	}
+	v := strings.TrimRight(string(raw), "\r\n")
+	clear(raw)
+	if v == "" {
+		return "", fmt.Errorf("--%s-from: %w", name, errEmpty)
+	}
+	return v, nil
 }
 
 // AddStd registers -name (deprecated, plain value, plus any aliases such as
@@ -109,17 +146,22 @@ func Resolve(ctx context.Context, bs ...*Binding) error {
 				fmt.Fprintf(b.warnOut, "--%s is deprecated: the value is visible in ps; use --%s-from <ref>\n", p, b.name)
 			}
 		}
+		if b.list != nil {
+			for _, r := range b.refs {
+				v, err := readRef(ctx, b.name, r)
+				if err != nil {
+					return err
+				}
+				*b.list = append(*b.list, v)
+			}
+			continue
+		}
 		if b.ref == "" {
 			continue
 		}
-		raw, err := open(ctx, b.ref)
+		v, err := readRef(ctx, b.name, b.ref)
 		if err != nil {
-			return fmt.Errorf("--%s-from: %w", b.name, err)
-		}
-		v := strings.TrimRight(string(raw), "\r\n")
-		clear(raw)
-		if v == "" {
-			return fmt.Errorf("--%s-from: %w", b.name, errEmpty)
+			return err
 		}
 		*b.dst = v
 	}
