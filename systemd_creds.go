@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -148,6 +149,8 @@ func execCreds(ctx context.Context, args []string) ([]byte, string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, credsBin, args...)
 	cmd.Env = []string{}
+	// A grandchild holding the pipe open must not outlive the kill.
+	cmd.WaitDelay = 2 * time.Second
 	var se tail
 	so := &capped{cancel: cancel, b: make([]byte, 0, MaxSize)} // never reallocated, so never copied unwiped
 	cmd.Stderr = &se

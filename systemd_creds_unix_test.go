@@ -310,7 +310,10 @@ func TestExecCredsMissingBinary(t *testing.T) {
 
 func TestExecCredsTooMuchOutput(t *testing.T) {
 	fakeCreds(t, `yes aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`)
-	_, _, err := execCreds(context.Background(), nil)
+	// A bound that is missing must fail this test by timing out, not hang it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, err := execCreds(ctx, nil)
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatal(err)
 	}
