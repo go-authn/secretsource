@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.12.0
+
+- `secretflag.AddFrom` registers only `--<name>-from` (no deprecated plain
+  twin), for a secret introduced after the plain flag was deprecated.
+- `secretflag.AddFromList` registers a repeatable `--<name>-from`; `Resolve`
+  appends every resolved secret to a `*[]string`, in order (key rotation).
+- Same trimming, empty-secret refusal and value-free errors as `Add`.
+
 ## v0.11.0
 
 - New `Delete(ctx, ref) error`, the counterpart of `Store`, so a caller that
