@@ -348,13 +348,16 @@ func TestExecCredsMissingBinary(t *testing.T) {
 }
 
 func TestExecCredsTooMuchOutput(t *testing.T) {
-	fakeCreds(t, `yes aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`)
-	// A bound that is missing must fail this test by timing out, not hang it.
+	// The child is itself bounded (1 MiB, then it stays alive): with the cap
+	// missing the test fails having held 1 MiB, it never lets an unbounded
+	// producer such as `yes` fill memory (a mutant of the cap did: 4.8 GB).
+	fakeCreds(t, `head -c 1048576 /dev/zero; exec sleep 30`)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	start := time.Now()
 	_, _, err := execCreds(ctx, nil)
-	if !errors.Is(err, ErrTooLarge) {
-		t.Fatal(err)
+	if !errors.Is(err, ErrTooLarge) || time.Since(start) > 4*time.Second {
+		t.Fatal(err, time.Since(start))
 	}
 }
 
