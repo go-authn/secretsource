@@ -70,12 +70,12 @@ func mapSecretService(r Ref, err error) error {
 // descriptor, not the path, so the file cannot be swapped between check and
 // read.
 func readFile(path string) ([]byte, error) {
-	return readFileVia(path, openSecretFile, checkSecretFile)
+	return readFileVia(path, openSecretFile, checkSecretFile, true)
 }
 
 // readFileVia is readFile with the open and permission steps chosen by the
-// caller.
-func readFileVia(path string, open func(string) (*os.File, error), check func(*os.File, fs.FileInfo, string) error) ([]byte, error) {
+// caller, and the trailing newline stripped only when trim is set.
+func readFileVia(path string, open func(string) (*os.File, error), check func(*os.File, fs.FileInfo, string) error, trim bool) ([]byte, error) {
 	f, err := open(path)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func readFileVia(path string, open func(string) (*os.File, error), check func(*o
 		return nil, err
 	}
 	n := len(b)
-	if n > 0 && b[n-1] == '\n' {
+	if trim && n > 0 && b[n-1] == '\n' {
 		n--
 		if n > 0 && b[n-1] == '\r' {
 			n--

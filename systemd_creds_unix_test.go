@@ -3,6 +3,7 @@
 package secretsource
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -52,13 +53,50 @@ func TestCredsFromDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(s.Bytes()) != "s3cret" {
+	if string(s.Bytes()) != "s3cret\n" { // raw: systemd-creds: never trims
 		t.Fatalf("got %q", s.Bytes())
 	}
 	_ = s.Close()
 	r, _ := Parse("systemd-creds:theca")
 	if r.String() != "systemd-creds:theca" {
 		t.Fatal(r.String())
+	}
+}
+
+// binaryPayload holds every byte value once, a NUL inside, bytes that are not
+// UTF-8, CRLF and a trailing newline: nothing of it may be trimmed or altered.
+func binaryPayload() []byte {
+	p := make([]byte, 0, 262)
+	for i := range 256 {
+		p = append(p, byte(i))
+	}
+	return append(p, 0xff, 0xfe, '\r', '\n')
+}
+
+func TestCredsBinarySafeFromDirectory(t *testing.T) {
+	dir, _ := credEnv(t)
+	want := binaryPayload()
+	writeCred(t, dir, "keytab", string(want), 0o400)
+	s, err := Open(context.Background(), "systemd-creds:keytab")
+	if err != nil || !bytes.Equal(s.Bytes(), want) {
+		t.Fatalf("%v: % x", err, s.Bytes())
+	}
+	// A credential that is only a newline is a one-byte secret, not an empty one.
+	writeCred(t, dir, "nl", "\n", 0o400)
+	s, err = Open(context.Background(), "systemd-creds:nl")
+	if err != nil || string(s.Bytes()) != "\n" {
+		t.Fatalf("%v: %q", err, s.Bytes())
+	}
+}
+
+func TestCredsBinarySafeFromDecrypt(t *testing.T) {
+	_, store := credEnv(t)
+	writeCred(t, store, "pem", "ct", 0o600)
+	want := binaryPayload()
+	runCreds = func(context.Context, []string) ([]byte, string, error) { return append([]byte(nil), want...), "", nil }
+	s, err := Open(context.Background(), "systemd-creds:pem")
+	if err != nil || !bytes.Equal(s.Bytes(), want) {
+		t.Fatalf("%v: % x", err, s.Bytes())
 	}
 }
 
@@ -177,7 +215,7 @@ func TestCredsDecryptFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(s.Bytes()) != "plain" {
+	if string(s.Bytes()) != "plain\r\n" {
 		t.Fatalf("%q", s.Bytes())
 	}
 	want := []string{"decrypt", "--name=pw", filepath.Join(store, "pw.cred"), "-"}
@@ -224,7 +262,8 @@ func TestCredsDecryptFails(t *testing.T) {
 		return []byte("junk"), "Failed to decrypt: no TPM\n", errors.New("exit status 1")
 	}
 	_, err := Open(context.Background(), "systemd-creds:pw")
-	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "no TPM") {
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "no TPM") ||
+		!strings.Contains(err.Error(), "may need re-sealing") || strings.Contains(err.Error(), "junk") {
 		t.Fatal(err)
 	}
 }

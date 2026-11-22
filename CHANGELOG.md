@@ -8,6 +8,12 @@
   never has to be written in plaintext on disk (a TPM2- or host-key-sealed
   credential with `LoadCredentialEncrypted=`). Measured on systemd 257 (Debian
   13, aarch64) with `--with-key=host`; not measured with a TPM2 key.
+- Binary-safe: the bytes come back exactly as stored (no trailing-newline
+  stripping, unlike `file:`), so keytabs, PEM keys and HMAC keys survive; tested
+  with a payload holding every byte value, a NUL and a trailing newline.
+- A failed decryption says the credential may need re-sealing; the README
+  explains the PCR-binding trade-offs (`--tpm2-pcrs=7` can lock every
+  credential after a firmware update) and the ways back.
 - `NAME` is validated (no `/`, `.`, `..`, NUL or control characters, at most
   255 bytes) and fuzzed (`FuzzCredName`, corpus committed).
 

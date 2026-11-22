@@ -17,7 +17,7 @@ use(s.Bytes())
 | `secretservice:SERVICE/ACCOUNT` | a freedesktop Secret Service item with attributes `service=SERVICE`, `account=ACCOUNT` |
 | `secretservice:KEY=VALUE[,KEY=VALUE...]` | the one Secret Service item carrying all those attributes, whatever else it has (a KeePassXC entry exposed by its Secret Service integration: `Title=...`, `UserName=...`; or `secret-tool store`). No escaping: keys and values hold no `,`. Several matches are refused |
 | `keepassxc:URL` | the KeePassXC entry whose **URL field** is that URL (any `scheme://host...`; `https://NAME.invalid/...` is a good, never-resolving choice), through KeePassXC's browser-integration protocol. Two entries with the same URL are refused as ambiguous |
-| `systemd-creds:NAME` | (Linux) a systemd credential. First the file `NAME` in `$CREDENTIALS_DIRECTORY` (what `LoadCredential=`, `LoadCredentialEncrypted=` and `SetCredentialEncrypted=` place there): opened with `O_NOFOLLOW`, a regular file, owned by root or the caller, no access for "other" (group bits are accepted: systemd gives a `User=` service a root-owned `0440` file with an ACL), the directory likewise. If the variable is unset or the directory lacks `NAME`, the credential `NAME` or `NAME.cred` is found in `/etc`, `/run`, `/usr/lib` `credstore.encrypted` and decrypted by `systemd-creds decrypt --name=NAME PATH -` (run directly, no shell, empty environment, secret on stdout only, output capped at 4096 bytes; a non-root caller tries `--user`, systemd 256 or later, then system scope). `NAME` is a plain file name: no `/`, not `.` or `..`, no control character, 255 bytes at most. A symlink, a loose mode or a name that does not match the one embedded in the credential is refused, not skipped. Refused with `ErrUnavailable` on other systems |
+| `systemd-creds:NAME` | (Linux) a systemd credential, returned **byte for byte** (no trailing-newline stripping, unlike `file:`); see [systemd credentials](#systemd-credentials-systemd-credsname). First the file `NAME` in `$CREDENTIALS_DIRECTORY` (what `LoadCredential=`, `LoadCredentialEncrypted=` and `SetCredentialEncrypted=` place there): opened with `O_NOFOLLOW`, a regular file, owned by root or the caller, no access for "other" (group bits are accepted: systemd gives a `User=` service a root-owned `0440` file with an ACL), the directory likewise. If the variable is unset or the directory lacks `NAME`, the credential `NAME` or `NAME.cred` is found in `/etc`, `/run`, `/usr/lib` `credstore.encrypted` and decrypted by `systemd-creds decrypt --name=NAME PATH -` (run directly, no shell, empty environment, secret on stdout only, output capped at 4096 bytes; a non-root caller tries `--user`, systemd 256 or later, then system scope). `NAME` is a plain file name: no `/`, not `.` or `..`, no control character, no `.cred` suffix, 255 bytes at most. A symlink, a loose mode or a name that does not match the one embedded in the credential is refused, not skipped. Refused with `ErrUnavailable` on other systems |
 
 `keepassxc:by-uuid/...` and `keepassxc:by-path/...` (KeePassXC's own lookups) are
 **refused**: KeePassXC 2.8.0 crashes (SIGSEGV, `BrowserService::sortPriority`,
@@ -37,6 +37,74 @@ answer is wiped, never used. Errors are typed: `ErrNotFound`, `ErrAmbiguous`,
 `ErrDenied`, `ErrBadRef`, `ErrScheme`, `ErrEmpty`, `ErrTooLarge`. (The Go
 runtime keeps a copy of a secret that crossed a JSON string until the garbage
 collector reclaims it; the buffers this package owns are wiped.)
+
+## systemd credentials (`systemd-creds:NAME`)
+
+Grammar, exactly: the scheme `systemd-creds` in lower case, a colon, then `NAME`,
+the credential name as given to `LoadCredential=` / `LoadCredentialEncrypted=` /
+`SetCredentialEncrypted=` / `systemd-creds encrypt --name=`. For example
+`password_from = "systemd-creds:smtp"`.
+
+- `NAME` is a plain file name of 1 to 255 bytes. Letters, digits, `.`, `-` and `_`
+  are what systemd credential names use; other characters pass through, except
+  `/`, NUL and control characters, which are refused.
+- No path (`systemd-creds:/etc/credstore.encrypted/smtp` is refused), not `.` or
+  `..`, and no `.cred` suffix (`systemd-creds:smtp.cred` is refused): the
+  suffix belongs to the file, the reference names the credential. `smtp` finds
+  the file `smtp` or `smtp.cred`.
+
+Resolution:
+
+1. `$CREDENTIALS_DIRECTORY/NAME` (what the service manager placed there). Opened
+   with `O_NOFOLLOW`, a regular file, owned by root or the caller, no access for
+   "other"; the directory likewise. Group bits are accepted: systemd gives a
+   `User=` service a root-owned `0440` file with an ACL for that user (measured
+   on systemd 257). A symlink or a loose mode is refused, never skipped.
+2. If the variable is unset or the directory lacks `NAME`: `NAME` or `NAME.cred`
+   in `/etc/credstore.encrypted`, `/run/credstore.encrypted`,
+   `/usr/lib/credstore.encrypted`, decrypted by `systemd-creds decrypt
+   --name=NAME PATH -`, run directly (no shell, empty environment, no stdin), the
+   secret read from stdout only, never from argv or the environment, at most 4096
+   bytes, ended with the context. A non-root caller tries `--user` (systemd 256
+   or later) first, then system scope. A credential whose embedded name differs
+   from `NAME` is refused by systemd-creds.
+3. Any other system: `ErrUnavailable`.
+
+**No trimming.** `Open("systemd-creds:NAME")` returns the exact bytes: a trailing
+newline, NUL bytes and non-UTF-8 bytes are kept, so keytabs, PEM keys and HMAC
+keys survive. This differs from `file:`, which strips one trailing newline.
+There is one entry point, `Open`; for `systemd-creds:` it never trims. Create a
+password credential without a newline: `printf %s 's3cret' | systemd-creds
+encrypt --name=smtp - /etc/credstore.encrypted/smtp.cred`. A credential of zero
+bytes is `ErrEmpty`; one longer than 4096 bytes is `ErrTooLarge`.
+
+### Choosing what a credential is sealed to
+
+`systemd-creds encrypt --with-key=` takes `host`, `tpm2`, `host+tpm2`, `null`
+and `auto` (the TPM2 key when a TPM2 device is found, else the host key on
+persistent media). **`--tpm2-pcrs=` defaults to no PCRs.** Binding to PCRs makes
+the credential unreadable whenever those measurements change, and the service
+then fails closed:
+
+- `--tpm2-pcrs=7` binds to the Secure Boot state: a firmware or shim update, or
+  a VM migration on a vTPM, can make every credential sealed that way
+  unreadable. Do not use a bare `--tpm2-pcrs=7` without a way back (below).
+- `--with-key=host+tpm2` with no `--tpm2-pcrs`: the key derives from the TPM2 chip
+  and the host key file (`/var/lib/systemd/credential.secret`); it survives
+  firmware updates, and is lost with the TPM2 chip or that file.
+- A signed PCR policy: `--tpm2-public-key=PATH` (a PEM RSA public key;
+  `--tpm2-public-key-pcrs=`, default PCR 11), with signatures made by
+  `systemd-measure` (`--tpm2-signature=`). A new boot component gets a new
+  signature; credentials need no re-sealing.
+- `systemd-pcrlock` predicts PCR values into a TPM2 policy: before a firmware
+  update run `systemd-pcrlock unlock-firmware-code`, afterwards `make-policy`
+  (see its manual; `systemd-cryptenroll` and `systemd-repart` take it with
+  `--tpm2-pcrlock=`; check that your `systemd-creds` does before relying on it).
+- **Re-sealing**: keep the secret in a place that does not depend on this
+  machine (an offline copy) and, when decryption fails, run `systemd-creds
+  encrypt` again from that copy. A failed decryption returns `ErrUnavailable`,
+  says the credential may need re-sealing, and carries systemd-creds' own
+  diagnostic, never the secret.
 
 ## KeePassXC (macOS, Linux)
 

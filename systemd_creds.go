@@ -28,6 +28,8 @@ func checkCredName(name string) error {
 		return errors.New("empty credential name")
 	case name == "." || name == "..":
 		return errors.New("credential name is a directory entry")
+	case strings.HasSuffix(name, ".cred"):
+		return errors.New("write the credential name, without the .cred suffix of its file")
 	case len(name) > maxCredName:
 		return fmt.Errorf("credential name longer than %d bytes", maxCredName)
 	case strings.ContainsRune(name, '/'):
@@ -53,7 +55,9 @@ var (
 // unset or the directory lacks the name, the encrypted credential is decrypted
 // from the credstore.encrypted directories by systemd-creds. A credential that
 // is present but unsafe (symlink, not a regular file, group or other access) is
-// refused, never skipped.
+// refused, never skipped. The bytes are returned exactly as stored: no
+// trimming of a trailing newline, no text assumption (unlike file:, which
+// strips one).
 func openSystemdCreds(ctx context.Context, name string) ([]byte, error) {
 	if goos != "linux" {
 		return nil, fmt.Errorf("%w: systemd credentials exist on Linux only (this is %s)", ErrUnavailable, goos)
@@ -65,7 +69,7 @@ func openSystemdCreds(ctx context.Context, name string) ([]byte, error) {
 		if st, err := os.Stat(dir); err == nil && st.Mode().Perm()&0o007 != 0 {
 			return nil, fmt.Errorf("%w: %s is accessible to others (mode %04o)", ErrUnavailable, dir, st.Mode().Perm())
 		}
-		b, err := readFileVia(filepath.Join(dir, name), openNoFollow, checkCredFile)
+		b, err := readFileVia(filepath.Join(dir, name), openNoFollow, checkCredFile, false)
 		if err == nil || !errors.Is(err, fs.ErrNotExist) {
 			return b, err
 		}
@@ -108,27 +112,17 @@ func decryptCred(ctx context.Context, name string) ([]byte, error) {
 		args = append(args, path, "-")
 		b, stderr, err := runCreds(ctx, args)
 		if err == nil {
-			return stripNewline(b), nil
+			return b, nil
 		}
 		clear(b)
 		if errors.Is(err, ErrTooLarge) || ctx.Err() != nil {
 			return nil, err
 		}
-		last = fmt.Errorf("%w: systemd-creds decrypt %s: %v: %s", ErrUnavailable, path, err, clip(strings.TrimSpace(stderr)))
+		// The child's stderr is systemd-creds' own diagnostic from a decrypt
+		// that produced nothing; it never holds the secret.
+		last = fmt.Errorf("%w: systemd-creds decrypt %s: %v: %s; the credential may need re-sealing (the TPM2 PCR policy or the host key it was sealed to may have changed): run `systemd-creds encrypt` again from a copy of the secret", ErrUnavailable, path, err, clip(strings.TrimSpace(stderr)))
 	}
 	return nil, last
-}
-
-// stripNewline drops one trailing newline (or CRLF), as file: does.
-func stripNewline(b []byte) []byte {
-	n := len(b)
-	if n > 0 && b[n-1] == '\n' {
-		n--
-		if n > 0 && b[n-1] == '\r' {
-			n--
-		}
-	}
-	return b[:n]
 }
 
 // tail keeps the first bytes of a child's stderr and discards the rest.
