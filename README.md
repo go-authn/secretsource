@@ -12,7 +12,7 @@ use(s.Bytes())
 
 | Reference | Reads |
 |---|---|
-| `file:PATH` | a regular file readable by its owner alone (mode 0600 or stricter); one trailing newline is stripped |
+| `file:PATH` | a regular file readable by its owner alone (Unix: mode 0600 or stricter; Windows: an access list that grants no read or write right to anyone but the owner, SYSTEM and Administrators); one trailing newline is stripped |
 | `keychain:SERVICE/ACCOUNT` | a macOS Keychain generic-password item (pure Go, [go-macos/keychain](https://github.com/go-macos/keychain)) |
 | `secretservice:SERVICE/ACCOUNT` | a freedesktop Secret Service item with attributes `service=SERVICE`, `account=ACCOUNT` |
 | `secretservice:KEY=VALUE[,KEY=VALUE...]` | the one Secret Service item carrying all those attributes, whatever else it has (a KeePassXC entry exposed by its Secret Service integration: `Title=...`, `UserName=...`; or `secret-tool store`). No escaping: keys and values hold no `,`. Several matches are refused |

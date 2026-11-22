@@ -77,8 +77,8 @@ func readFile(path string) ([]byte, error) {
 	if err == nil && !st.Mode().IsRegular() {
 		err = fmt.Errorf("%s: not a regular file", path)
 	}
-	if err == nil && st.Mode().Perm()&0o077 != 0 {
-		err = fmt.Errorf("%s: mode %04o, must not be readable or writable by group or others", path, st.Mode().Perm())
+	if err == nil {
+		err = checkSecretFile(f, st, path)
 	}
 	if err != nil {
 		return nil, err
