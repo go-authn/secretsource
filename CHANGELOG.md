@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.0
+
+- New scheme `systemd-creds:NAME` (Linux): a systemd credential, read from
+  `$CREDENTIALS_DIRECTORY/NAME` or, failing that, decrypted from a
+  `credstore.encrypted` directory with `systemd-creds decrypt`, so a secret
+  never has to be written in plaintext on disk (a TPM2- or host-key-sealed
+  credential with `LoadCredentialEncrypted=`). Measured on systemd 257 (Debian
+  13, aarch64) with `--with-key=host`; not measured with a TPM2 key.
+- `NAME` is validated (no `/`, `.`, `..`, NUL or control characters, at most
+  255 bytes) and fuzzed (`FuzzCredName`, corpus committed).
+
 ## v0.7.0
 
 Fixes #18.

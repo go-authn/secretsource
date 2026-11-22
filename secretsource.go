@@ -10,10 +10,15 @@
 //	                             attributes are service=SERVICE, account=ACCOUNT
 //	                             (GNOME Keyring, KWallet, KeePassXC with "Secret
 //	                             Service Integration" enabled)
+//	systemd-creds:NAME           a systemd credential (Linux): the file NAME in
+//	                             $CREDENTIALS_DIRECTORY, else NAME decrypted from
+//	                             a credstore.encrypted directory by systemd-creds
 //
-// There is deliberately no scheme that runs a command: a reference reaches the
-// program through a command-line flag, and a flag must never be able to start
-// a process. A reference never holds the secret itself, so it may sit in argv,
+// There is deliberately no scheme that runs a command of the caller's choosing:
+// a reference reaches the program through a command-line flag, and a flag must
+// never be able to start a process. (systemd-creds runs one fixed program,
+// systemd-creds, with a validated name; the reference never picks the program
+// or its other arguments.) A reference never holds the secret itself, so it may sit in argv,
 // a shell history or a script; the secret travels only from the manager to the
 // returned [Secret], which the caller wipes with [Secret.Close].
 //
@@ -91,6 +96,8 @@ type Ref struct {
 	// Attrs is a secretservice lookup by arbitrary attributes, canonical
 	// ("key=value,key=value", keys sorted); see [Ref.AttrMap].
 	Attrs string
+	// Name is a systemd credential name (systemd-creds).
+	Name string
 }
 
 // String renders the reference back as written.
@@ -98,6 +105,8 @@ func (r Ref) String() string {
 	switch {
 	case r.Scheme == "file":
 		return "file:" + r.Path
+	case r.Scheme == "systemd-creds":
+		return "systemd-creds:" + r.Name
 	case r.Scheme == "keepassxc":
 		return "keepassxc:" + r.Entry
 	case r.Attrs != "":
@@ -192,8 +201,13 @@ func Parse(ref string) (Ref, error) {
 			return Ref{}, err
 		}
 		return Ref{Scheme: scheme, Entry: e}, nil
+	case "systemd-creds":
+		if err := checkCredName(value); err != nil {
+			return Ref{}, fmt.Errorf("%w: %q: %v", ErrBadRef, clip(ref), err)
+		}
+		return Ref{Scheme: scheme, Name: value}, nil
 	}
-	return Ref{}, fmt.Errorf("%w: %q (supported: file, keychain, secretservice, keepassxc)", ErrScheme, clip(scheme))
+	return Ref{}, fmt.Errorf("%w: %q (supported: file, keychain, secretservice, keepassxc, systemd-creds)", ErrScheme, clip(scheme))
 }
 
 func hasControl(s string) bool {
@@ -233,6 +247,8 @@ func Open(ctx context.Context, ref string) (Secret, error) {
 		return Secret{b}, nil
 	case "keepassxc":
 		b, err = openKeePassXC(ctx, r)
+	case "systemd-creds":
+		b, err = openSystemdCreds(ctx, r.Name)
 	case "keychain":
 		b, err = call(ctx, func() ([]byte, error) { return keychainGet(r.Service, r.Account) })
 		err = mapKeychain(r, err)

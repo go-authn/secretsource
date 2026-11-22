@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 
 	"github.com/go-freedesktop/secretservice"
 	"github.com/go-macos/keychain"
@@ -68,7 +70,13 @@ func mapSecretService(r Ref, err error) error {
 // descriptor, not the path, so the file cannot be swapped between check and
 // read.
 func readFile(path string) ([]byte, error) {
-	f, err := openSecretFile(path)
+	return readFileVia(path, openSecretFile, checkSecretFile)
+}
+
+// readFileVia is readFile with the open and permission steps chosen by the
+// caller.
+func readFileVia(path string, open func(string) (*os.File, error), check func(*os.File, fs.FileInfo, string) error) ([]byte, error) {
+	f, err := open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +86,7 @@ func readFile(path string) ([]byte, error) {
 		err = fmt.Errorf("%s: not a regular file", path)
 	}
 	if err == nil {
-		err = checkSecretFile(f, st, path)
+		err = check(f, st, path)
 	}
 	if err != nil {
 		return nil, err
