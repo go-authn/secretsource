@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/go-authn/harden/privfile"
 	"github.com/go-freedesktop/secretservice"
 	"github.com/go-macos/keychain"
 	"golang.org/x/crypto/nacl/box"
@@ -344,29 +345,12 @@ func (f fileStore) save(hash string, a assoc) error {
 		return fmt.Errorf("keepassxc: not keeping the association: %w", err)
 	}
 	b, _ := json.Marshal(a)
-	return writeAtomic(p, b)
-}
-
-// createTemp is replaceable by tests.
-var createTemp = os.CreateTemp
-
-// writeAtomic writes b (mode 0600) to a new file next to p, then renames it onto
-// p. os.WriteFile on p itself would follow a symbolic link left there and keep
-// the mode of a file already there; a rename replaces whatever p is, and a reader
-// never sees half a file.
-func writeAtomic(p string, b []byte) error {
-	tmp, err := createTemp(filepath.Dir(p), ".keepassxc-*.tmp")
-	if err != nil {
-		return err
-	}
-	_, werr := tmp.Write(b)
-	if err := errors.Join(werr, tmp.Close()); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Rename(tmp.Name(), p); err != nil {
-		os.Remove(tmp.Name())
-		return err
+	// privfile.Write checks the directory again at the write and writes a 0600
+	// temporary file renamed onto p: a symbolic link left at p is replaced, not
+	// followed, and a reader never sees half a file. On Windows the file gets an
+	// owner-only DACL.
+	if err := privfile.Write(p, b); err != nil {
+		return fmt.Errorf("keepassxc: not keeping the association: %w", err)
 	}
 	return nil
 }
