@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.1
+
+- The KeePassXC association file is written by
+  `github.com/go-authn/harden/privfile` v0.2.0 (the temporary file, sync and
+  rename moved there from `writeAtomic`). On Windows the file now gets an
+  owner-only protected DACL, as in go-authn/kinit v0.3.2; the directory is
+  checked again at the write, as well as before it.
+
 ## v0.8.0
 
 - New scheme `systemd-creds:NAME` (Linux): a systemd credential, read from

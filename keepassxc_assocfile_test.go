@@ -78,58 +78,29 @@ func TestDialKeePassXCSaysWhyThereIsNowhereToDial(t *testing.T) {
 	}
 }
 
-func TestWriteAtomicFailures(t *testing.T) {
-	dir := t.TempDir()
-
-	// No directory to make the temporary file in.
-	if err := writeAtomic(filepath.Join(dir, "missing", "f"), []byte("x")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("no directory: %v", err)
-	}
-
-	// A temporary file that cannot be written: nothing is renamed, nothing is left.
-	old := createTemp
-	t.Cleanup(func() { createTemp = old })
-	createTemp = func(d, pattern string) (*os.File, error) {
-		f, err := os.CreateTemp(d, pattern)
-		if err != nil {
-			return nil, err
-		}
-		f.Close()
-		return f, nil
-	}
-	target := filepath.Join(dir, "f")
-	if err := writeAtomic(target, []byte("x")); !errors.Is(err, os.ErrClosed) {
-		t.Errorf("a closed temporary file: %v", err)
-	}
-	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the target exists after a failed write: %v", err)
-	}
-	createTemp = old
-	assertNoTemp(t, dir)
-
-	// A target that cannot be replaced: a directory with something in it.
-	if err := os.MkdirAll(filepath.Join(target, "inside"), 0o700); err != nil {
+// A target that cannot be replaced (a directory with something in it) is an
+// error of the save, said as such, and nothing is left beside it.
+func TestFileStoreSaveFailsWhereTheTargetCannotBeReplaced(t *testing.T) {
+	config := t.TempDir()
+	configDirIs(t, config, nil)
+	var f fileStore
+	p, err := f.path("ab")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeAtomic(target, []byte("x")); err == nil {
-		t.Error("a directory was replaced")
-	}
-	assertNoTemp(t, dir)
-
-	// The other side: a free target is written whole.
-	free := filepath.Join(dir, "free")
-	if err := writeAtomic(free, []byte("whole")); err != nil {
+	if err := os.MkdirAll(filepath.Join(p, "inside"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := os.ReadFile(free); err != nil || string(b) != "whole" {
-		t.Errorf("%q %v", b, err)
+	err = f.save("ab", assoc{ID: "i", Key: "k"})
+	if err == nil || !strings.Contains(err.Error(), "not keeping the association") {
+		t.Errorf("a directory in the way: %v", err)
 	}
-	assertNoTemp(t, dir)
+	assertNoTemp(t, filepath.Dir(p))
 }
 
 func assertNoTemp(t *testing.T, dir string) {
 	t.Helper()
-	m, err := filepath.Glob(filepath.Join(dir, ".keepassxc-*.tmp"))
+	m, err := filepath.Glob(filepath.Join(dir, ".keepassxc-ab.json.*"))
 	if err != nil || len(m) != 0 {
 		t.Errorf("temporary files left: %v %v", m, err)
 	}
