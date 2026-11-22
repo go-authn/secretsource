@@ -12,7 +12,7 @@ use(s.Bytes())
 
 | Reference | Reads |
 |---|---|
-| `file:PATH` | a regular file readable by its owner alone (Unix: mode 0600 or stricter; Windows: an access list that grants no read or write right to anyone but the owner, SYSTEM and Administrators); one trailing newline is stripped |
+| `file:PATH` | a regular file readable by its owner alone, **not a symbolic link** (Unix: opened with `O_NOFOLLOW`, owned by the calling user, mode 0600 or stricter; Windows: opened with `FILE_FLAG_OPEN_REPARSE_POINT` and refused if it is a reparse point, and an access list that grants no read or write right to anyone but the owner, SYSTEM and Administrators); one trailing newline is stripped |
 | `keychain:SERVICE/ACCOUNT` | a macOS Keychain generic-password item (pure Go, [go-macos/keychain](https://github.com/go-macos/keychain)) |
 | `secretservice:SERVICE/ACCOUNT` | a freedesktop Secret Service item with attributes `service=SERVICE`, `account=ACCOUNT` |
 | `secretservice:KEY=VALUE[,KEY=VALUE...]` | the one Secret Service item carrying all those attributes, whatever else it has (a KeePassXC entry exposed by its Secret Service integration: `Title=...`, `UserName=...`; or `secret-tool store`). No escaping: keys and values hold no `,`. Several matches are refused |
@@ -28,6 +28,14 @@ A reference never holds the secret, so it may sit in a flag, a script or a
 shell history. There is **no scheme that runs a command**: a flag must never be
 able to start a process. A reference with no scheme is refused, not guessed to
 be a path (`file:` is how a path is written).
+
+**Migrating from v0.8 (symlinked secret files).** From v0.9.0 `file:` refuses a
+symbolic link in the last component of the path (dangling or not), and on Unix a
+file the calling user does not own. A link could point at a 0600 file of another
+account, or be planted in a writable directory. If you used
+`file:/etc/app/pin` with `pin -> /run/secrets/pin`, write `file:/run/secrets/pin`
+(`readlink -f` prints the real path). Links in the directories before the last
+component are still followed.
 
 Bounds: a secret longer than 4096 bytes is refused; an empty one from a manager
 is refused; a call ends with its context (2 minutes when the context has no
