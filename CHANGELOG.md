@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.0
+
+Fixes #18.
+
+- `file:` works on Windows. It was always refused there, because the Go runtime
+  synthesises a 0666 mode that says nothing about who can read the file. The
+  access list of the open file is read instead (`GetSecurityInfo` on the handle,
+  so the file cannot be swapped between check and read) and the file is refused
+  when any entry grants read, write, append, delete or ownership rights to a SID
+  other than the owner, SYSTEM and the Administrators group, when the list is
+  null, or when an entry cannot be read (object entries). Deny entries are
+  ignored, which can only refuse more; entries that only inherit to children are
+  skipped; inherited entries are already in the list read from the handle.
+  The owner is not itself required to be the current user, as on Unix.
+- Tested on Windows 11 ARM64 and in CI with real files (a private file is read,
+  one readable by Everyone, Authenticated Users or Users is refused).
+
 ## v0.6.1
 
 Fixes #16. No API change.
