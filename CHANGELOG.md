@@ -20,6 +20,9 @@
   placeholder) is refused too; point at a plain local copy.
 - No no-follow read primitive exists in go-authn/harden `privfile` (v0.2.0 has
   `Write` only), so the open lives here, beside `openNoFollow`.
+- Documentation: the README states what `systemd-creds:` requires of
+  `$CREDENTIALS_DIRECTORY` (absolute, no access for "other"; systemd makes it
+  0700).
 - **Migrating:** if a `file:` reference goes through a symlink, replace the path
   by the file the link names (`readlink -f PATH`). Symlinked directories earlier
   in the path still work.

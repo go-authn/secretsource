@@ -68,6 +68,10 @@ Resolution:
    "other"; the directory likewise. Group bits are accepted: systemd gives a
    `User=` service a root-owned `0440` file with an ACL for that user (measured
    on systemd 257). A symlink or a loose mode is refused, never skipped.
+   `$CREDENTIALS_DIRECTORY` itself must be an absolute path with no access for
+   "other" (a mode with any `o` bit, such as 0755, is refused with
+   `ErrUnavailable`); systemd creates it as 0700, so a test fixture should make
+   the directory 0700 too.
 2. If the variable is unset or the directory lacks `NAME`: `NAME` or `NAME.cred`
    in `/etc/credstore.encrypted`, `/run/credstore.encrypted`,
    `/usr/lib/credstore.encrypted`, decrypted by `systemd-creds decrypt
