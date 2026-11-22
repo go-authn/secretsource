@@ -199,6 +199,25 @@ the group is `KeePassXC-Browser Passwords` (created under the root) unless `--gr
 shows its own dialogs (an access request for the existing entry, an update confirmation) and saves
 the database according to its settings.
 
+## Deleting an entry: `secretsource.Delete`
+
+```go
+err := secretsource.Delete(ctx, "keychain:fido/yubikey-5c")
+if errors.Is(err, fs.ErrNotExist) { /* already gone: your call whether that is success */ }
+```
+
+| Reference | What `Delete` does |
+| --- | --- |
+| `keychain:SERVICE/ACCOUNT` | removes the generic-password item |
+| `secretservice:SERVICE/ACCOUNT` | removes the item with `service=SERVICE`, `account=ACCOUNT`; if several match, `ErrAmbiguous` and nothing is deleted |
+| `keepassxc:URL` | the one entry whose URL field is URL, by the browser protocol's `delete-entry` (KeePassXC 2.8.0: `BrowserAction::handleDeleteEntry`, `BrowserService::deleteEntry`); KeePassXC asks you to confirm, then moves it to the database's Recycle Bin, where the password stays until the bin is emptied; several entries: `ErrAmbiguous`, nothing deleted |
+| `file:`, `systemd-creds:`, `secretservice:KEY=VALUE` | `ErrNoDelete`: this package never manages a file or credential it did not store, and an attribute lookup names no single item |
+
+An absent entry is an error that is both `ErrNotFound` and `fs.ErrNotExist`. The managers have
+no "does it exist" call, so the entry is looked up first, as `Store` does before it replaces
+one: a keychain or Secret Service value passes through memory and is wiped at once, a KeePassXC
+reply is decoded without its password field. The secret is never returned, printed or logged.
+
 ## Storing a secret by hand
 
 macOS Keychain: `security add-generic-password -s fido -a yubikey-5c -w` (`-w`

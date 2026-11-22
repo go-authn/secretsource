@@ -47,6 +47,10 @@ type fakeKPX struct {
 	setCalls    []map[string]any
 	setDeclines bool
 	nextUUID    int
+	// deleteCalls are the inner delete-entry requests; deleteDeclines models
+	// the person answering No to KeePassXC's dialog.
+	deleteCalls    []map[string]any
+	deleteDeclines bool
 }
 
 func newFake() *fakeKPX {
@@ -195,6 +199,24 @@ func (f *fakeKPX) serve(s net.Conn) {
 				inner["error"] = "success"
 			} else {
 				inner["error"] = "error"
+			}
+		case "delete-entry":
+			// BrowserService::deleteEntry: unknown uuid or a declined dialog is success=false;
+			// otherwise the entry leaves the lookup (it goes to the Recycle Bin).
+			f.deleteCalls = append(f.deleteCalls, in)
+			uuid, _ := in["uuid"].(string)
+			deleted := false
+			for u, es := range f.entries {
+				for i, e := range es {
+					if e["uuid"] == uuid && !f.deleteDeclines {
+						f.entries[u] = append(es[:i:i], es[i+1:]...)
+						deleted = true
+						break
+					}
+				}
+			}
+			if !deleted {
+				inner["success"] = "false"
 			}
 		case "get-logins":
 			url, _ := in["url"].(string)

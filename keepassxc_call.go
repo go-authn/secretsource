@@ -60,6 +60,9 @@ func (k *conn) readFrame() (outer, error) {
 	}
 }
 
+// errNotSucceeded is a reply whose success field is not "true".
+var errNotSucceeded = errors.New("keepassxc: the request did not succeed")
+
 // call sends an encrypted request and decrypts the reply into out. The reply
 // carries the request nonce plus one, which is checked: a reply that does not
 // is not an answer to this request. triggerUnlock makes KeePassXC ask the
@@ -103,7 +106,7 @@ func (k *conn) call(action string, inner map[string]any, out any) error {
 		return fmt.Errorf("keepassxc: malformed reply: %w", err)
 	}
 	if status.Success != "true" {
-		return errors.New("keepassxc: the request did not succeed")
+		return errNotSucceeded
 	}
 	return json.Unmarshal(opened, out)
 }
