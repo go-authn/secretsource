@@ -158,6 +158,21 @@ BrowserShared, BrowserAction, BrowserMessageBuilder, BrowserService).
 KeePassXC answers whichever database is open; with a locked database it opens
 its unlock dialog and waits for you (up to the 2-minute bound).
 
+## Taking a secret from a command-line flag: `secretsource/secretflag`
+
+A secret passed as a flag value is visible in `ps`. The `secretflag` package
+gives a command the pair `--<name>` (deprecated, warns on stderr) and
+`--<name>-from <ref>`, mutually exclusive, with the reference resolved by
+`secretsource.Open`:
+
+```go
+var password string
+b := secretflag.Add(cmd, "password", &password, "the admin password") // cobra
+// or: secretflag.AddStd(fs, os.Stderr, "password", &password, "the admin password", "p")
+// ... after parsing:
+if err := secretflag.Resolve(ctx, b); err != nil { return err }
+```
+
 ## Storing a secret: `secretsource store`
 
 No entry has to be made by hand:
