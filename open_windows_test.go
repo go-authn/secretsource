@@ -24,6 +24,7 @@ func openFileW(t *testing.T, p string) error {
 
 func TestOpenSecretFileRefusesAReparsePoint(t *testing.T) {
 	target := newSecret(t, "hunter2-secret")
+	protect(t, target, "(A;;FA;;;%s)(A;;FA;;;SY)(A;;FA;;;BA)")
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("no privilege to create a symlink: %v", err)
