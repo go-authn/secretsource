@@ -3,7 +3,7 @@ module github.com/go-authn/secretsource
 go 1.27.4
 
 require (
-	github.com/ebitengine/purego v0.11.2
+	github.com/ebitengine/purego v0.11.3
 	github.com/go-authn/harden v0.2.0
 	github.com/go-freedesktop/secretservice v0.4.0
 	github.com/go-macos/keychain v0.3.1
