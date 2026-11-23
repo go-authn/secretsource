@@ -622,6 +622,36 @@ func mustDial(t *testing.T, f *fakeKPX) net.Conn {
 	return c
 }
 
+// TestNewConnContextCancelClosesConn drives the context.AfterFunc closure in
+// newConn deterministically: the server reads the request and never answers,
+// so the only thing that can end newConn's read is the closure closing the
+// conn after the context is cancelled mid-call. The closure's body has run
+// by the time the read fails, so the coverage counter cannot be missed.
+func TestNewConnContextCancelClosesConn(t *testing.T) {
+	c, s := net.Pipe()
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		buf := make([]byte, 4096)
+		_, _ = s.Read(buf) // the change-public-keys request has arrived
+		cancel()
+	}()
+	done := make(chan error, 1)
+	go func() {
+		_, err := newConn(ctx, c)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("newConn succeeded with no reply")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("newConn not released by cancelling its context")
+	}
+}
+
 func TestKeePassXCWriteFails(t *testing.T) {
 	c, s := net.Pipe()
 	s.Close()
